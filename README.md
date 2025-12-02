@@ -3,7 +3,7 @@
 A fast, keyboard-driven TUI for exploring logs from files, Docker containers, Kubernetes pods, and remote servers.
 
 ![Rust](https://img.shields.io/badge/rust-stable-orange.svg)
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)
 
 ## Features
 
@@ -143,4 +143,9 @@ The status bar shows active modes:
 
 ## License
 
-MIT License - see LICENSE file for details.
+Licensed under either of:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+
+at your option.

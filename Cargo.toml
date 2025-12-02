@@ -1,7 +1,8 @@
 [package]
 name = "bark"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
 description = "A lazygit style Rust TUI for exploring logs from files and containers in real time"
 
 [dependencies]

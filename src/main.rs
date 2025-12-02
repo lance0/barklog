@@ -25,11 +25,28 @@ use sources::{file::FileSource, LogEvent, LogSource, LogSourceType};
 async fn main() -> Result<()> {
     // Parse command line arguments
     let args: Vec<String> = std::env::args().collect();
+
+    // Handle --help and --version
+    if args.len() >= 2 {
+        match args[1].as_str() {
+            "--help" | "-h" => {
+                print_help();
+                std::process::exit(0);
+            }
+            "--version" | "-V" => {
+                println!("bark {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
+            _ => {}
+        }
+    }
+
     if args.len() < 2 {
         eprintln!("Usage: bark <file_path>");
         eprintln!("       bark --docker <container_name>");
         eprintln!("       bark --k8s <pod_name> [-n namespace] [-c container]");
         eprintln!("       bark --ssh <host> <remote_path>");
+        eprintln!("\nRun 'bark --help' for more information.");
         std::process::exit(1);
     }
 
@@ -136,6 +153,45 @@ async fn main() -> Result<()> {
     execute!(terminal.backend_mut(), DisableMouseCapture, LeaveAlternateScreen)?;
 
     result
+}
+
+fn print_help() {
+    println!("bark {} - A keyboard-driven TUI for exploring logs", env!("CARGO_PKG_VERSION"));
+    println!();
+    println!("USAGE:");
+    println!("    bark <file_path>");
+    println!("    bark --docker <container_name>");
+    println!("    bark --k8s <pod_name> [-n namespace] [-c container]");
+    println!("    bark --ssh <host> <remote_path>");
+    println!();
+    println!("OPTIONS:");
+    println!("    -h, --help       Print help information");
+    println!("    -V, --version    Print version information");
+    println!();
+    println!("SOURCES:");
+    println!("    <file_path>      Tail a local log file");
+    println!("    --docker         Follow Docker container logs");
+    println!("    --k8s            Follow Kubernetes pod logs");
+    println!("    --ssh            Tail a remote file via SSH");
+    println!();
+    println!("KEYBOARD SHORTCUTS:");
+    println!("    j/k              Scroll down/up");
+    println!("    g/G              Go to top/bottom");
+    println!("    /                Start filter input");
+    println!("    n/N              Next/previous match");
+    println!("    m                Toggle bookmark");
+    println!("    [/]              Previous/next bookmark");
+    println!("    t                Toggle relative time");
+    println!("    J                Toggle JSON pretty-print");
+    println!("    w                Toggle line wrap");
+    println!("    e                Export filtered lines");
+    println!("    ?                Show full help");
+    println!("    q                Quit");
+    println!();
+    println!("CONFIG:");
+    println!("    ~/.config/bark/config.toml");
+    println!();
+    println!("For more information, see: https://github.com/lance0/bark");
 }
 
 async fn run_event_loop<'a>(
