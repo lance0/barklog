@@ -1,26 +1,26 @@
-use std::collections::VecDeque;
-use std::fs::File;
-use std::io::Write;
-use std::time::Instant;
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
-use ratatui::style::{Color, Style};
-use tui_textarea::TextArea;
 use crate::config::Config;
 use crate::filter::{ActiveFilter, MatchRange, SavedFilter};
 use crate::sources::LogSourceType;
 use crate::theme::Theme;
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use ratatui::style::{Color, Style};
+use std::collections::VecDeque;
+use std::fs::File;
+use std::io::Write;
+use std::time::Instant;
+use tui_textarea::TextArea;
 
 /// Common timestamp formats to try parsing
 const TIMESTAMP_FORMATS: &[&str] = &[
-    "%Y-%m-%dT%H:%M:%S%.fZ",          // ISO 8601 with Z
-    "%Y-%m-%dT%H:%M:%S%.f%:z",        // ISO 8601 with offset
-    "%Y-%m-%dT%H:%M:%S%:z",           // ISO 8601 without millis
-    "%Y-%m-%dT%H:%M:%S%.f",           // ISO 8601 no timezone
-    "%Y-%m-%dT%H:%M:%S",              // ISO 8601 basic
-    "%Y-%m-%d %H:%M:%S%.f",           // Common log format with millis
-    "%Y-%m-%d %H:%M:%S",              // Common log format
-    "%d/%b/%Y:%H:%M:%S %z",           // Apache/nginx combined
-    "%b %d %H:%M:%S",                 // Syslog format
+    "%Y-%m-%dT%H:%M:%S%.fZ",   // ISO 8601 with Z
+    "%Y-%m-%dT%H:%M:%S%.f%:z", // ISO 8601 with offset
+    "%Y-%m-%dT%H:%M:%S%:z",    // ISO 8601 without millis
+    "%Y-%m-%dT%H:%M:%S%.f",    // ISO 8601 no timezone
+    "%Y-%m-%dT%H:%M:%S",       // ISO 8601 basic
+    "%Y-%m-%d %H:%M:%S%.f",    // Common log format with millis
+    "%Y-%m-%d %H:%M:%S",       // Common log format
+    "%d/%b/%Y:%H:%M:%S %z",    // Apache/nginx combined
+    "%b %d %H:%M:%S",          // Syslog format
 ];
 
 /// Try to parse a timestamp from the beginning of a line
@@ -31,7 +31,7 @@ fn parse_timestamp(line: &str) -> Option<DateTime<Local>> {
     for fmt in TIMESTAMP_FORMATS {
         // Try to parse with chrono
         if let Ok(dt) = NaiveDateTime::parse_from_str(&prefix, fmt) {
-            return Some(Local.from_local_datetime(&dt).single()?);
+            return Local.from_local_datetime(&dt).single();
         }
         // Try parsing with timezone info
         if let Ok(dt) = DateTime::parse_from_str(&prefix, fmt) {
@@ -44,7 +44,7 @@ fn parse_timestamp(line: &str) -> Option<DateTime<Local>> {
     for word in prefix.split_whitespace().take(3) {
         for fmt in TIMESTAMP_FORMATS {
             if let Ok(dt) = NaiveDateTime::parse_from_str(word, fmt) {
-                return Some(Local.from_local_datetime(&dt).single()?);
+                return Local.from_local_datetime(&dt).single();
             }
             if let Ok(dt) = DateTime::parse_from_str(word, fmt) {
                 return Some(dt.with_timezone(&Local));
@@ -110,7 +110,6 @@ impl LogLevel {
             LogLevel::None
         }
     }
-
 }
 
 /// A single log line with optional cached rendering
@@ -133,7 +132,13 @@ impl LogLine {
         let has_ansi = raw.contains('\x1b');
         let timestamp = parse_timestamp(&raw);
         let is_json = Self::detect_json(&raw);
-        Self { raw, level, has_ansi, timestamp, is_json }
+        Self {
+            raw,
+            level,
+            has_ansi,
+            timestamp,
+            is_json,
+        }
     }
 
     /// Detect if a line is JSON
@@ -156,7 +161,8 @@ pub enum InputMode {
     Normal,
     /// Editing the filter text
     FilterEditing,
-    /// Selecting a source
+    /// Selecting a source (future feature)
+    #[allow(dead_code)]
     SourceSelect,
 }
 
@@ -298,12 +304,20 @@ impl<'a> AppState<'a> {
         // Find next bookmark after current position
         if let Some(&next_bookmark) = self.bookmarks.iter().find(|&&b| b > current_line_idx) {
             // Find this bookmark in filtered_indices
-            if let Some(scroll_pos) = self.filtered_indices.iter().position(|&i| i == next_bookmark) {
+            if let Some(scroll_pos) = self
+                .filtered_indices
+                .iter()
+                .position(|&i| i == next_bookmark)
+            {
                 self.scroll = scroll_pos;
                 self.stick_to_bottom = false;
                 self.status_message = Some(format!(
                     "Bookmark {}/{}",
-                    self.bookmarks.iter().position(|&b| b == next_bookmark).unwrap() + 1,
+                    self.bookmarks
+                        .iter()
+                        .position(|&b| b == next_bookmark)
+                        .unwrap()
+                        + 1,
                     self.bookmarks.len()
                 ));
                 return;
@@ -312,13 +326,15 @@ impl<'a> AppState<'a> {
 
         // Wrap around to first bookmark
         if let Some(&first_bookmark) = self.bookmarks.first() {
-            if let Some(scroll_pos) = self.filtered_indices.iter().position(|&i| i == first_bookmark) {
+            if let Some(scroll_pos) = self
+                .filtered_indices
+                .iter()
+                .position(|&i| i == first_bookmark)
+            {
                 self.scroll = scroll_pos;
                 self.stick_to_bottom = false;
-                self.status_message = Some(format!(
-                    "Bookmark 1/{} (wrapped)",
-                    self.bookmarks.len()
-                ));
+                self.status_message =
+                    Some(format!("Bookmark 1/{} (wrapped)", self.bookmarks.len()));
             }
         }
     }
@@ -335,12 +351,20 @@ impl<'a> AppState<'a> {
         // Find previous bookmark before current position
         if let Some(&prev_bookmark) = self.bookmarks.iter().rev().find(|&&b| b < current_line_idx) {
             // Find this bookmark in filtered_indices
-            if let Some(scroll_pos) = self.filtered_indices.iter().position(|&i| i == prev_bookmark) {
+            if let Some(scroll_pos) = self
+                .filtered_indices
+                .iter()
+                .position(|&i| i == prev_bookmark)
+            {
                 self.scroll = scroll_pos;
                 self.stick_to_bottom = false;
                 self.status_message = Some(format!(
                     "Bookmark {}/{}",
-                    self.bookmarks.iter().position(|&b| b == prev_bookmark).unwrap() + 1,
+                    self.bookmarks
+                        .iter()
+                        .position(|&b| b == prev_bookmark)
+                        .unwrap()
+                        + 1,
                     self.bookmarks.len()
                 ));
                 return;
@@ -349,7 +373,11 @@ impl<'a> AppState<'a> {
 
         // Wrap around to last bookmark
         if let Some(&last_bookmark) = self.bookmarks.last() {
-            if let Some(scroll_pos) = self.filtered_indices.iter().position(|&i| i == last_bookmark) {
+            if let Some(scroll_pos) = self
+                .filtered_indices
+                .iter()
+                .position(|&i| i == last_bookmark)
+            {
                 self.scroll = scroll_pos;
                 self.stick_to_bottom = false;
                 self.status_message = Some(format!(
@@ -361,7 +389,8 @@ impl<'a> AppState<'a> {
         }
     }
 
-    /// Check if a line index is bookmarked
+    /// Check if a line index is bookmarked (future feature)
+    #[allow(dead_code)]
     pub fn is_bookmarked(&self, line_idx: usize) -> bool {
         self.bookmarks.contains(&line_idx)
     }
@@ -389,7 +418,11 @@ impl<'a> AppState<'a> {
         self.level_colors_enabled = !self.level_colors_enabled;
         self.status_message = Some(format!(
             "Level colors: {}",
-            if self.level_colors_enabled { "on" } else { "off" }
+            if self.level_colors_enabled {
+                "on"
+            } else {
+                "off"
+            }
         ));
     }
 
@@ -465,7 +498,8 @@ impl<'a> AppState<'a> {
         &self.sources[self.current_source_idx]
     }
 
-    /// Add a new source
+    /// Add a new source (future feature)
+    #[allow(dead_code)]
     pub fn add_source(&mut self, source: LogSourceType) {
         self.sources.push(source);
     }
@@ -695,7 +729,8 @@ impl<'a> AppState<'a> {
     /// Cancel filter editing and revert to previous state
     pub fn cancel_filter(&mut self) {
         // Restore textarea to previous filter
-        let prev = self.active_filter
+        let prev = self
+            .active_filter
             .as_ref()
             .map(|f| f.pattern.clone())
             .unwrap_or_default();
@@ -742,7 +777,11 @@ impl<'a> AppState<'a> {
         }
         self.status_message = Some(format!(
             "Filter mode: {}",
-            if self.filter_is_regex { "regex" } else { "substring" }
+            if self.filter_is_regex {
+                "regex"
+            } else {
+                "substring"
+            }
         ));
     }
 

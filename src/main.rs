@@ -12,15 +12,15 @@ use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyEventKind, EnableMouseCapture, DisableMouseCapture},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 
 use app::AppState;
 use config::Config;
-use sources::{file::FileSource, LogEvent, LogSource, LogSourceType};
+use sources::{LogEvent, LogSource, LogSourceType, file::FileSource};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -58,7 +58,9 @@ async fn main() -> Result<()> {
         }
         let container = args[2].clone();
         (
-            LogSourceType::Docker { container: container.clone() },
+            LogSourceType::Docker {
+                container: container.clone(),
+            },
             Box::new(sources::docker::DockerSource::new(container)),
         )
     } else if args[1] == "--k8s" {
@@ -100,7 +102,11 @@ async fn main() -> Result<()> {
         }
 
         (
-            LogSourceType::K8s { pod: pod.clone(), namespace: namespace.clone(), container: container.clone() },
+            LogSourceType::K8s {
+                pod: pod.clone(),
+                namespace: namespace.clone(),
+                container: container.clone(),
+            },
             Box::new(sources::k8s::K8sSource::new(pod, namespace, container)),
         )
     } else if args[1] == "--ssh" {
@@ -111,7 +117,10 @@ async fn main() -> Result<()> {
         let host = args[2].clone();
         let path = args[3].clone();
         (
-            LogSourceType::Ssh { host: host.clone(), path: path.clone() },
+            LogSourceType::Ssh {
+                host: host.clone(),
+                path: path.clone(),
+            },
             Box::new(sources::ssh::SshSource::new(host, path)),
         )
     } else {
@@ -151,13 +160,20 @@ async fn main() -> Result<()> {
 
     // Restore terminal
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), DisableMouseCapture, LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    )?;
 
     result
 }
 
 fn print_help() {
-    println!("bark {} - A keyboard-driven TUI for exploring logs", env!("CARGO_PKG_VERSION"));
+    println!(
+        "bark {} - A keyboard-driven TUI for exploring logs",
+        env!("CARGO_PKG_VERSION")
+    );
     println!();
     println!("USAGE:");
     println!("    bark <file_path>");

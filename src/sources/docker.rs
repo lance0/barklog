@@ -2,8 +2,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-use crate::app::LogLine;
 use super::{LogEvent, LogSource};
+use crate::app::LogLine;
 
 /// A log source that reads from a Docker container using docker logs -f
 pub struct DockerSource {
@@ -50,14 +50,20 @@ impl LogSource for DockerSource {
 
                     match child.wait().await {
                         Ok(status) if !status.success() => {
-                            let _ = tx.send(LogEvent::Error(
-                                format!("docker logs exited with status: {}", status)
-                            )).await;
+                            let _ = tx
+                                .send(LogEvent::Error(format!(
+                                    "docker logs exited with status: {}",
+                                    status
+                                )))
+                                .await;
                         }
                         Err(e) => {
-                            let _ = tx.send(LogEvent::Error(
-                                format!("Error waiting for docker logs: {}", e)
-                            )).await;
+                            let _ = tx
+                                .send(LogEvent::Error(format!(
+                                    "Error waiting for docker logs: {}",
+                                    e
+                                )))
+                                .await;
                         }
                         _ => {}
                     }
@@ -65,9 +71,12 @@ impl LogSource for DockerSource {
                     let _ = tx.send(LogEvent::EndOfStream).await;
                 }
                 Err(e) => {
-                    let _ = tx.send(LogEvent::Error(
-                        format!("Failed to spawn docker logs: {}", e)
-                    )).await;
+                    let _ = tx
+                        .send(LogEvent::Error(format!(
+                            "Failed to spawn docker logs: {}",
+                            e
+                        )))
+                        .await;
                     let _ = tx.send(LogEvent::EndOfStream).await;
                 }
             }

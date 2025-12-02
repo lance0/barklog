@@ -19,7 +19,11 @@ pub struct K8sSource {
 
 impl K8sSource {
     pub fn new(pod: String, namespace: Option<String>, container: Option<String>) -> Self {
-        Self { pod, namespace, container }
+        Self {
+            pod,
+            namespace,
+            container,
+        }
     }
 }
 
@@ -34,9 +38,7 @@ impl LogSource for K8sSource {
 
         tokio::spawn(async move {
             let mut cmd = Command::new("kubectl");
-            cmd.arg("logs")
-                .arg("-f")
-                .arg("--tail=1000");
+            cmd.arg("logs").arg("-f").arg("--tail=1000");
 
             if let Some(ns) = namespace {
                 cmd.arg("-n").arg(ns);
@@ -48,13 +50,14 @@ impl LogSource for K8sSource {
                 cmd.arg("-c").arg(c);
             }
 
-            cmd.stdout(Stdio::piped())
-                .stderr(Stdio::piped());
+            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
             let mut child = match cmd.spawn() {
                 Ok(child) => child,
                 Err(e) => {
-                    let _ = tx.send(LogEvent::Error(format!("Failed to run kubectl: {}", e))).await;
+                    let _ = tx
+                        .send(LogEvent::Error(format!("Failed to run kubectl: {}", e)))
+                        .await;
                     return;
                 }
             };
@@ -62,7 +65,9 @@ impl LogSource for K8sSource {
             let stdout = match child.stdout.take() {
                 Some(stdout) => stdout,
                 None => {
-                    let _ = tx.send(LogEvent::Error("Failed to get stdout".to_string())).await;
+                    let _ = tx
+                        .send(LogEvent::Error("Failed to get stdout".to_string()))
+                        .await;
                     return;
                 }
             };

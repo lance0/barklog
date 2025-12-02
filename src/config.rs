@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
 
 use crate::theme::Theme;
 
@@ -86,7 +86,8 @@ impl Config {
         Theme::by_name(&self.theme)
     }
 
-    /// Save configuration to file
+    /// Save configuration to file (future feature)
+    #[allow(dead_code)]
     pub fn save(&self) -> Result<(), String> {
         let path = Self::config_path()
             .ok_or_else(|| "Could not determine config directory".to_string())?;

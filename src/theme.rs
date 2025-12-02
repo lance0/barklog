@@ -120,20 +120,20 @@ impl Theme {
     pub fn kawaii() -> Self {
         Self {
             // Log levels - soft pastels
-            level_error: Color::Rgb(255, 121, 162),   // Soft pink
-            level_warn: Color::Rgb(255, 200, 152),    // Soft peach
-            level_info: Color::Rgb(152, 255, 200),    // Soft mint
-            level_debug: Color::Rgb(162, 200, 255),   // Soft lavender-blue
-            level_trace: Color::Rgb(180, 180, 200),   // Soft gray-lavender
+            level_error: Color::Rgb(255, 121, 162), // Soft pink
+            level_warn: Color::Rgb(255, 200, 152),  // Soft peach
+            level_info: Color::Rgb(152, 255, 200),  // Soft mint
+            level_debug: Color::Rgb(162, 200, 255), // Soft lavender-blue
+            level_trace: Color::Rgb(180, 180, 200), // Soft gray-lavender
 
             // UI borders
-            border_focused: Color::Rgb(255, 182, 214),  // Pink
+            border_focused: Color::Rgb(255, 182, 214), // Pink
             border_unfocused: Color::Rgb(180, 180, 200),
 
             // Header
-            header_title: Color::Rgb(255, 182, 214),   // Pink
-            header_source: Color::Rgb(182, 214, 255),  // Light blue
-            header_bg: Color::Rgb(60, 50, 70),         // Dark purple-gray
+            header_title: Color::Rgb(255, 182, 214),  // Pink
+            header_source: Color::Rgb(182, 214, 255), // Light blue
+            header_bg: Color::Rgb(60, 50, 70),        // Dark purple-gray
 
             // Status bar
             status_mode_bg: Color::Rgb(214, 182, 255), // Light purple
@@ -146,13 +146,13 @@ impl Theme {
             highlight_match_fg: Color::Rgb(40, 30, 50),
 
             // Bookmarks
-            bookmark: Color::Rgb(255, 150, 200),       // Hot pink
+            bookmark: Color::Rgb(255, 150, 200), // Hot pink
 
             // Timestamps
             timestamp: Color::Rgb(180, 180, 200),
 
             // JSON
-            json: Color::Rgb(182, 255, 214),           // Mint
+            json: Color::Rgb(182, 255, 214), // Mint
 
             // Filters
             filter_selected: Color::Rgb(255, 214, 182), // Peach
@@ -175,24 +175,24 @@ impl Theme {
     pub fn cyber() -> Self {
         Self {
             // Log levels - neon colors
-            level_error: Color::Rgb(255, 50, 100),    // Neon red-pink
-            level_warn: Color::Rgb(255, 200, 0),      // Neon yellow
-            level_info: Color::Rgb(0, 255, 150),      // Neon green
-            level_debug: Color::Rgb(0, 200, 255),     // Electric blue
-            level_trace: Color::Rgb(100, 100, 120),   // Muted gray-blue
+            level_error: Color::Rgb(255, 50, 100), // Neon red-pink
+            level_warn: Color::Rgb(255, 200, 0),   // Neon yellow
+            level_info: Color::Rgb(0, 255, 150),   // Neon green
+            level_debug: Color::Rgb(0, 200, 255),  // Electric blue
+            level_trace: Color::Rgb(100, 100, 120), // Muted gray-blue
 
             // UI borders
-            border_focused: Color::Rgb(0, 255, 255),  // Cyan neon
+            border_focused: Color::Rgb(0, 255, 255), // Cyan neon
             border_unfocused: Color::Rgb(60, 60, 80),
 
             // Header
-            header_title: Color::Rgb(255, 0, 255),    // Magenta neon
-            header_source: Color::Rgb(0, 255, 255),   // Cyan neon
-            header_bg: Color::Rgb(20, 20, 35),        // Very dark blue
+            header_title: Color::Rgb(255, 0, 255), // Magenta neon
+            header_source: Color::Rgb(0, 255, 255), // Cyan neon
+            header_bg: Color::Rgb(20, 20, 35),     // Very dark blue
 
             // Status bar
-            status_mode_bg: Color::Rgb(255, 0, 255),  // Magenta
-            status_mode_fg: Color::Rgb(0, 0, 0),      // Black
+            status_mode_bg: Color::Rgb(255, 0, 255), // Magenta
+            status_mode_fg: Color::Rgb(0, 0, 0),     // Black
             status_help: Color::Rgb(100, 100, 120),
             status_bg: Color::Rgb(10, 10, 20),
 
@@ -201,20 +201,20 @@ impl Theme {
             highlight_match_fg: Color::Rgb(0, 0, 0),
 
             // Bookmarks
-            bookmark: Color::Rgb(255, 100, 255),      // Pink-magenta
+            bookmark: Color::Rgb(255, 100, 255), // Pink-magenta
 
             // Timestamps
             timestamp: Color::Rgb(100, 100, 120),
 
             // JSON
-            json: Color::Rgb(0, 200, 255),            // Electric blue
+            json: Color::Rgb(0, 200, 255), // Electric blue
 
             // Filters
             filter_selected: Color::Rgb(255, 200, 0), // Yellow neon
             filter_prefix: Color::Rgb(0, 255, 255),   // Cyan
 
             // Sources
-            source_current: Color::Rgb(0, 255, 150),  // Neon green
+            source_current: Color::Rgb(0, 255, 150), // Neon green
 
             // Empty states
             empty_state: Color::Rgb(100, 100, 120),
@@ -230,11 +230,11 @@ impl Theme {
     pub fn dracula() -> Self {
         Self {
             // Log levels - Dracula palette
-            level_error: Color::Rgb(255, 85, 85),     // Red
-            level_warn: Color::Rgb(255, 184, 108),    // Orange
-            level_info: Color::Rgb(80, 250, 123),     // Green
-            level_debug: Color::Rgb(139, 233, 253),   // Cyan
-            level_trace: Color::Rgb(98, 114, 164),    // Comment gray
+            level_error: Color::Rgb(255, 85, 85),   // Red
+            level_warn: Color::Rgb(255, 184, 108),  // Orange
+            level_info: Color::Rgb(80, 250, 123),   // Green
+            level_debug: Color::Rgb(139, 233, 253), // Cyan
+            level_trace: Color::Rgb(98, 114, 164),  // Comment gray
 
             // UI borders
             border_focused: Color::Rgb(189, 147, 249), // Purple
@@ -256,13 +256,13 @@ impl Theme {
             highlight_match_fg: Color::Rgb(40, 42, 54),
 
             // Bookmarks
-            bookmark: Color::Rgb(255, 121, 198),      // Pink
+            bookmark: Color::Rgb(255, 121, 198), // Pink
 
             // Timestamps
-            timestamp: Color::Rgb(98, 114, 164),      // Comment
+            timestamp: Color::Rgb(98, 114, 164), // Comment
 
             // JSON
-            json: Color::Rgb(139, 233, 253),          // Cyan
+            json: Color::Rgb(139, 233, 253), // Cyan
 
             // Filters
             filter_selected: Color::Rgb(241, 250, 140), // Yellow
@@ -285,11 +285,11 @@ impl Theme {
     pub fn monochrome() -> Self {
         Self {
             // Log levels - varying grays
-            level_error: Color::Rgb(255, 255, 255),   // White (stands out)
-            level_warn: Color::Rgb(200, 200, 200),    // Light gray
-            level_info: Color::Rgb(170, 170, 170),    // Medium-light
-            level_debug: Color::Rgb(140, 140, 140),   // Medium
-            level_trace: Color::Rgb(100, 100, 100),   // Dark
+            level_error: Color::Rgb(255, 255, 255), // White (stands out)
+            level_warn: Color::Rgb(200, 200, 200),  // Light gray
+            level_info: Color::Rgb(170, 170, 170),  // Medium-light
+            level_debug: Color::Rgb(140, 140, 140), // Medium
+            level_trace: Color::Rgb(100, 100, 100), // Dark
 
             // UI borders
             border_focused: Color::Rgb(200, 200, 200),

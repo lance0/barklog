@@ -2,8 +2,14 @@
 name = "bark"
 version = "1.0.0"
 edition = "2024"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
-description = "A lazygit style Rust TUI for exploring logs from files and containers in real time"
+description = "A keyboard-driven TUI for exploring logs from files, Docker, Kubernetes, and SSH"
+repository = "https://github.com/lance0/bark"
+homepage = "https://github.com/lance0/bark"
+readme = "README.md"
+keywords = ["tui", "logs", "terminal", "docker", "kubernetes"]
+categories = ["command-line-utilities", "development-tools::debugging"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

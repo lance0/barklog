@@ -3,8 +3,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-use crate::app::LogLine;
 use super::{LogEvent, LogSource};
+use crate::app::LogLine;
 
 /// A log source that reads from a file using tail -F
 pub struct FileSource {
@@ -47,14 +47,17 @@ impl LogSource for FileSource {
                     // Wait for process to exit
                     match child.wait().await {
                         Ok(status) if !status.success() => {
-                            let _ = tx.send(LogEvent::Error(
-                                format!("tail exited with status: {}", status)
-                            )).await;
+                            let _ = tx
+                                .send(LogEvent::Error(format!(
+                                    "tail exited with status: {}",
+                                    status
+                                )))
+                                .await;
                         }
                         Err(e) => {
-                            let _ = tx.send(LogEvent::Error(
-                                format!("Error waiting for tail: {}", e)
-                            )).await;
+                            let _ = tx
+                                .send(LogEvent::Error(format!("Error waiting for tail: {}", e)))
+                                .await;
                         }
                         _ => {}
                     }
@@ -62,9 +65,9 @@ impl LogSource for FileSource {
                     let _ = tx.send(LogEvent::EndOfStream).await;
                 }
                 Err(e) => {
-                    let _ = tx.send(LogEvent::Error(
-                        format!("Failed to spawn tail: {}", e)
-                    )).await;
+                    let _ = tx
+                        .send(LogEvent::Error(format!("Failed to spawn tail: {}", e)))
+                        .await;
                     let _ = tx.send(LogEvent::EndOfStream).await;
                 }
             }

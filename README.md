@@ -2,8 +2,9 @@
 
 A fast, keyboard-driven TUI for exploring logs from files, Docker containers, Kubernetes pods, and remote servers.
 
-![Rust](https://img.shields.io/badge/rust-stable-orange.svg)
-![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)
+[![CI](https://github.com/lance0/bark/actions/workflows/ci.yml/badge.svg)](https://github.com/lance0/bark/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/bark.svg)](https://crates.io/crates/bark)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 
 ## Features
 
@@ -22,6 +23,12 @@ A fast, keyboard-driven TUI for exploring logs from files, Docker containers, Ku
 
 ## Installation
 
+### From crates.io
+
+```bash
+cargo install bark
+```
+
 ### From source
 
 ```bash
@@ -31,11 +38,9 @@ cargo build --release
 # Binary is at target/release/bark
 ```
 
-### Using Cargo
+### Pre-built binaries
 
-```bash
-cargo install --git https://github.com/lance0/bark.git
-```
+Download from [GitHub Releases](https://github.com/lance0/bark/releases).
 
 ## Usage
 

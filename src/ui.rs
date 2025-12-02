@@ -1,11 +1,13 @@
 use ansi_to_tui::IntoText;
-use serde_json;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
+    widgets::{
+        Block, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation,
+        ScrollbarState, Wrap,
+    },
 };
 
 use crate::app::{AppState, FocusedPanel, InputMode, LogLevel};
@@ -13,6 +15,9 @@ use crate::filter::MatchRange;
 use crate::theme::Theme;
 
 const SIDE_PANEL_WIDTH: u16 = 24;
+
+/// Data for rendering a single log line: (raw, has_ansi, level_color, relative_time, is_json, is_bookmarked)
+type LineRenderData = (String, bool, Option<Color>, Option<String>, bool, bool);
 
 /// Get color for a log level from the theme
 fn get_level_color(level: &LogLevel, theme: &Theme) -> Option<Color> {
@@ -43,7 +48,7 @@ fn apply_horizontal_scroll_to_line(line: &Line<'_>, offset: usize) -> Line<'stat
             line.spans
                 .iter()
                 .map(|s| Span::styled(s.content.to_string(), s.style))
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
         );
     }
 
@@ -72,7 +77,12 @@ fn apply_horizontal_scroll_to_line(line: &Line<'_>, offset: usize) -> Line<'stat
 }
 
 /// Apply match highlighting to a line, returning styled spans
-fn highlight_matches(text: &str, matches: &[MatchRange], base_style: Style, theme: &Theme) -> Line<'static> {
+fn highlight_matches(
+    text: &str,
+    matches: &[MatchRange],
+    base_style: Style,
+    theme: &Theme,
+) -> Line<'static> {
     if matches.is_empty() {
         return Line::from(Span::styled(text.to_string(), base_style));
     }
@@ -117,10 +127,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     let main_chunks = if state.show_side_panel {
         Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(SIDE_PANEL_WIDTH),
-                Constraint::Min(20),
-            ])
+            .constraints([Constraint::Length(SIDE_PANEL_WIDTH), Constraint::Min(20)])
             .split(frame.area())
     } else {
         Layout::default()
@@ -135,15 +142,19 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     }
 
     // Main content area
-    let content_area = if state.show_side_panel { main_chunks[1] } else { main_chunks[0] };
+    let content_area = if state.show_side_panel {
+        main_chunks[1]
+    } else {
+        main_chunks[0]
+    };
 
     let content_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  // Header
-            Constraint::Min(3),     // Log view
-            Constraint::Length(1),  // Status bar
-            Constraint::Length(1),  // Filter bar
+            Constraint::Length(1), // Header
+            Constraint::Min(3),    // Log view
+            Constraint::Length(1), // Status bar
+            Constraint::Length(1), // Filter bar
         ])
         .split(content_area);
 
@@ -163,8 +174,8 @@ fn draw_side_panel(frame: &mut Frame, state: &AppState, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(state.sources.len() as u16 + 2),  // Sources section
-            Constraint::Min(3),  // Filters section
+            Constraint::Length(state.sources.len() as u16 + 2), // Sources section
+            Constraint::Min(3),                                 // Filters section
         ])
         .split(area);
 
@@ -186,11 +197,16 @@ fn draw_sources_panel(frame: &mut Frame, state: &AppState, area: Rect) {
         .borders(Borders::ALL)
         .border_style(border_style);
 
-    let items: Vec<ListItem> = state.sources
+    let items: Vec<ListItem> = state
+        .sources
         .iter()
         .enumerate()
         .map(|(i, source)| {
-            let prefix = if i == state.current_source_idx { "▶ " } else { "  " };
+            let prefix = if i == state.current_source_idx {
+                "▶ "
+            } else {
+                "  "
+            };
             let style = if i == state.current_source_idx {
                 Style::default().fg(state.theme.source_current)
             } else {
@@ -224,11 +240,16 @@ fn draw_filters_panel(frame: &mut Frame, state: &AppState, area: Rect) {
             .block(block);
         frame.render_widget(msg, area);
     } else {
-        let items: Vec<ListItem> = state.saved_filters
+        let items: Vec<ListItem> = state
+            .saved_filters
             .iter()
             .enumerate()
             .map(|(i, filter)| {
-                let prefix = if i == state.selected_filter_idx { "▶ " } else { "  " };
+                let prefix = if i == state.selected_filter_idx {
+                    "▶ "
+                } else {
+                    "  "
+                };
                 let indicator = if filter.is_regex { " [.*]" } else { "" };
                 let style = if i == state.selected_filter_idx {
                     Style::default().fg(state.theme.filter_selected)
@@ -248,7 +269,12 @@ fn draw_filters_panel(frame: &mut Frame, state: &AppState, area: Rect) {
 fn draw_header(frame: &mut Frame, state: &AppState, area: Rect) {
     let source_name = state.current_source().name();
     let header = Paragraph::new(Line::from(vec![
-        Span::styled(" bark ", Style::default().fg(state.theme.header_title).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " bark ",
+            Style::default()
+                .fg(state.theme.header_title)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw("| "),
         Span::styled(source_name, Style::default().fg(state.theme.header_source)),
     ]))
@@ -267,7 +293,11 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
     };
 
     let block = Block::default()
-        .borders(if state.show_side_panel { Borders::LEFT } else { Borders::NONE })
+        .borders(if state.show_side_panel {
+            Borders::LEFT
+        } else {
+            Borders::NONE
+        })
         .border_style(border_style);
 
     let inner = block.inner(area);
@@ -290,11 +320,14 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
 
     // Collect line data first (to avoid borrow issues)
     // Also track which line indices are bookmarked
-    let line_data: Vec<(String, bool, Option<Color>, Option<String>, bool, bool)> = visible
+    let line_data: Vec<LineRenderData> = visible
         .iter()
         .enumerate()
         .map(|(visible_idx, (_scroll_idx, line))| {
-            let actual_line_idx = filtered_indices.get(scroll_pos + visible_idx).copied().unwrap_or(0);
+            let actual_line_idx = filtered_indices
+                .get(scroll_pos + visible_idx)
+                .copied()
+                .unwrap_or(0);
             let is_bookmarked = bookmarks.contains(&actual_line_idx);
             let level_color = if level_colors {
                 get_level_color(&line.level, &theme)
@@ -305,7 +338,11 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
                 line.raw.clone(),
                 line.has_ansi,
                 level_color,
-                if show_relative { line.relative_time() } else { None },
+                if show_relative {
+                    line.relative_time()
+                } else {
+                    None
+                },
                 line.is_json,
                 is_bookmarked,
             )
@@ -314,42 +351,58 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
 
     // Pre-compute pretty JSON if needed
     let json_cache: Vec<Option<String>> = if json_pretty_enabled {
-        line_data.iter().map(|(raw, _, _, _, is_json, _)| {
-            if *is_json {
-                serde_json::from_str::<serde_json::Value>(raw)
-                    .ok()
-                    .and_then(|v| serde_json::to_string_pretty(&v).ok())
-            } else {
-                None
-            }
-        }).collect()
+        line_data
+            .iter()
+            .map(|(raw, _, _, _, is_json, _)| {
+                if *is_json {
+                    serde_json::from_str::<serde_json::Value>(raw)
+                        .ok()
+                        .and_then(|v| serde_json::to_string_pretty(&v).ok())
+                } else {
+                    None
+                }
+            })
+            .collect()
     } else {
         vec![None; line_data.len()]
     };
 
     // Build the paragraph content with highlighting
     let mut lines_content: Vec<Line<'_>> = Vec::with_capacity(height);
-    let h_scroll = if state.line_wrap { 0 } else { state.horizontal_scroll };
+    let h_scroll = if state.line_wrap {
+        0
+    } else {
+        state.horizontal_scroll
+    };
 
-    for (idx, (raw, has_ansi, level_color, relative_time, _is_json, is_bookmarked)) in line_data.iter().enumerate() {
+    for (idx, (raw, has_ansi, level_color, relative_time, _is_json, is_bookmarked)) in
+        line_data.iter().enumerate()
+    {
         // Check if we have pretty JSON for this line
-        let display_text = json_cache.get(idx).and_then(|j| j.as_ref()).map(|s| s.as_str()).unwrap_or(raw);
+        let display_text = json_cache
+            .get(idx)
+            .and_then(|j| j.as_ref())
+            .map(|s| s.as_str())
+            .unwrap_or(raw);
 
         // Build bookmark prefix if bookmarked
         let bookmark_prefix: Option<Span> = if *is_bookmarked {
-            Some(Span::styled("* ", Style::default().fg(theme.bookmark).add_modifier(Modifier::BOLD)))
+            Some(Span::styled(
+                "* ",
+                Style::default()
+                    .fg(theme.bookmark)
+                    .add_modifier(Modifier::BOLD),
+            ))
         } else {
             None
         };
 
         // Build relative time prefix if enabled
         let time_prefix: Option<Vec<Span>> = relative_time.as_ref().map(|rt| {
-            vec![
-                Span::styled(
-                    format!("{:>8} ", rt),
-                    Style::default().fg(theme.timestamp),
-                ),
-            ]
+            vec![Span::styled(
+                format!("{:>8} ", rt),
+                Style::default().fg(theme.timestamp),
+            )]
         });
 
         // Handle multi-line display (for pretty JSON)
@@ -370,9 +423,11 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
                             apply_horizontal_scroll_to_line(text_line, h_scroll)
                         } else {
                             Line::from(
-                                text_line.spans.iter()
+                                text_line
+                                    .spans
+                                    .iter()
                                     .map(|s| Span::styled(s.content.to_string(), s.style))
-                                    .collect::<Vec<_>>()
+                                    .collect::<Vec<_>>(),
                             )
                         };
 
@@ -429,7 +484,8 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
                 let scrolled = apply_horizontal_scroll(display_line, h_scroll);
                 // Adjust match ranges for the scroll offset (only for original text)
                 let matches = if !is_multiline && h_scroll > 0 {
-                    state.get_match_ranges(raw)
+                    state
+                        .get_match_ranges(raw)
                         .into_iter()
                         .filter_map(|m| {
                             if m.end <= h_scroll {
@@ -455,7 +511,8 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
                     Vec::new() // No highlighting for pretty JSON lines
                 };
 
-                let mut highlighted_line = highlight_matches(&scrolled, &matches, base_style, &theme);
+                let mut highlighted_line =
+                    highlight_matches(&scrolled, &matches, base_style, &theme);
 
                 // Add prefixes (bookmark, time) - only on first line
                 if show_prefix {
@@ -503,8 +560,7 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
             .begin_symbol(Some("▲"))
             .end_symbol(Some("▼"));
 
-        let mut scrollbar_state = ScrollbarState::new(filtered)
-            .position(state.scroll);
+        let mut scrollbar_state = ScrollbarState::new(filtered).position(state.scroll);
 
         frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }
@@ -534,7 +590,11 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
     let follow_indicator = if state.stick_to_bottom { "[F]" } else { "" };
     let regex_indicator = if state.filter_is_regex { "[.*]" } else { "" };
     let wrap_indicator = if state.line_wrap { "[W]" } else { "" };
-    let color_indicator = if state.level_colors_enabled { "[C]" } else { "" };
+    let color_indicator = if state.level_colors_enabled {
+        "[C]"
+    } else {
+        ""
+    };
     let time_indicator = if state.show_relative_time { "[T]" } else { "" };
     let json_indicator = if state.json_pretty { "[J]" } else { "" };
     let hscroll_indicator = if !state.line_wrap && state.horizontal_scroll > 0 {
@@ -544,11 +604,18 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
     };
 
     // Combine indicators
-    let mut indicators: Vec<String> = [follow_indicator, regex_indicator, wrap_indicator, color_indicator, time_indicator, json_indicator]
-        .iter()
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .collect();
+    let mut indicators: Vec<String> = [
+        follow_indicator,
+        regex_indicator,
+        wrap_indicator,
+        color_indicator,
+        time_indicator,
+        json_indicator,
+    ]
+    .iter()
+    .filter(|s| !s.is_empty())
+    .map(|s| s.to_string())
+    .collect();
     if !hscroll_indicator.is_empty() {
         indicators.push(hscroll_indicator);
     }
@@ -558,7 +625,8 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
         format!(" {}", indicators.join(" "))
     };
 
-    let filter_str = state.active_filter
+    let filter_str = state
+        .active_filter
         .as_ref()
         .map(|f| format!(" | filter: {}", f.pattern))
         .unwrap_or_default();
@@ -571,14 +639,18 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
     let status = Line::from(vec![
         Span::styled(
             format!(" {} ", mode_str),
-            Style::default().bg(state.theme.status_mode_bg).fg(state.theme.status_mode_fg),
+            Style::default()
+                .bg(state.theme.status_mode_bg)
+                .fg(state.theme.status_mode_fg),
         ),
-        Span::raw(format!(" {}/{} lines{}{} ", filtered, total, indicators_str, filter_str)),
+        Span::raw(format!(
+            " {}/{} lines{}{} ",
+            filtered, total, indicators_str, filter_str
+        )),
         Span::styled(help_text, Style::default().fg(state.theme.status_help)),
     ]);
 
-    let paragraph = Paragraph::new(status)
-        .style(Style::default().bg(state.theme.status_bg));
+    let paragraph = Paragraph::new(status).style(Style::default().bg(state.theme.status_bg));
 
     frame.render_widget(paragraph, area);
 }
@@ -591,20 +663,22 @@ fn draw_filter_bar(frame: &mut Frame, state: &mut AppState, area: Rect) {
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Length(1),  // "/" prefix
-                    Constraint::Min(1),     // textarea
+                    Constraint::Length(1), // "/" prefix
+                    Constraint::Min(1),    // textarea
                 ])
                 .split(area);
 
-            let prefix = Paragraph::new("/")
-                .style(Style::default().fg(state.theme.filter_prefix));
+            let prefix = Paragraph::new("/").style(Style::default().fg(state.theme.filter_prefix));
             frame.render_widget(prefix, chunks[0]);
 
             frame.render_widget(&state.filter_textarea, chunks[1]);
         }
         _ => {
             if let Some(msg) = &state.status_message {
-                let content = Line::from(Span::styled(msg.as_str(), Style::default().fg(state.theme.warning_message)));
+                let content = Line::from(Span::styled(
+                    msg.as_str(),
+                    Style::default().fg(state.theme.warning_message),
+                ));
                 let paragraph = Paragraph::new(content);
                 frame.render_widget(paragraph, area);
             }
@@ -627,7 +701,10 @@ fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
     frame.render_widget(Clear, help_area);
 
     let help_text = vec![
-        Line::from(Span::styled("Keyboard Shortcuts", Style::default().add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "Keyboard Shortcuts",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
         Line::from(""),
         Line::from("Navigation:"),
         Line::from("  j/k, ↑/↓     Scroll up/down"),

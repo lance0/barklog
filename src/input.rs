@@ -24,7 +24,10 @@ pub fn handle_mouse(state: &mut AppState, mouse: MouseEvent, _page_size: usize) 
 pub fn handle_key(state: &mut AppState, key: KeyEvent, page_size: usize) {
     // Help overlay takes priority
     if state.show_help {
-        if matches!(key.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?')) {
+        if matches!(
+            key.code,
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?')
+        ) {
             state.show_help = false;
         }
         return;
@@ -64,36 +67,34 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
         }
 
         // Navigation (context-dependent on focused panel)
-        KeyCode::Char('j') | KeyCode::Down => {
-            match state.focused_panel {
-                FocusedPanel::LogView => state.scroll_down(),
-                FocusedPanel::Sources => {
-                    if state.current_source_idx < state.sources.len() - 1 {
-                        state.current_source_idx += 1;
-                    }
-                }
-                FocusedPanel::Filters => {
-                    if !state.saved_filters.is_empty() && state.selected_filter_idx < state.saved_filters.len() - 1 {
-                        state.selected_filter_idx += 1;
-                    }
+        KeyCode::Char('j') | KeyCode::Down => match state.focused_panel {
+            FocusedPanel::LogView => state.scroll_down(),
+            FocusedPanel::Sources => {
+                if state.current_source_idx < state.sources.len() - 1 {
+                    state.current_source_idx += 1;
                 }
             }
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            match state.focused_panel {
-                FocusedPanel::LogView => state.scroll_up(),
-                FocusedPanel::Sources => {
-                    if state.current_source_idx > 0 {
-                        state.current_source_idx -= 1;
-                    }
-                }
-                FocusedPanel::Filters => {
-                    if state.selected_filter_idx > 0 {
-                        state.selected_filter_idx -= 1;
-                    }
+            FocusedPanel::Filters => {
+                if !state.saved_filters.is_empty()
+                    && state.selected_filter_idx < state.saved_filters.len() - 1
+                {
+                    state.selected_filter_idx += 1;
                 }
             }
-        }
+        },
+        KeyCode::Char('k') | KeyCode::Up => match state.focused_panel {
+            FocusedPanel::LogView => state.scroll_up(),
+            FocusedPanel::Sources => {
+                if state.current_source_idx > 0 {
+                    state.current_source_idx -= 1;
+                }
+            }
+            FocusedPanel::Filters => {
+                if state.selected_filter_idx > 0 {
+                    state.selected_filter_idx -= 1;
+                }
+            }
+        },
 
         // Horizontal scrolling (when line wrap is off)
         KeyCode::Char('h') | KeyCode::Left => {
@@ -236,7 +237,9 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
         KeyCode::Char('x') | KeyCode::Delete => {
             if state.focused_panel == FocusedPanel::Filters && !state.saved_filters.is_empty() {
                 state.saved_filters.remove(state.selected_filter_idx);
-                if state.selected_filter_idx >= state.saved_filters.len() && state.selected_filter_idx > 0 {
+                if state.selected_filter_idx >= state.saved_filters.len()
+                    && state.selected_filter_idx > 0
+                {
                     state.selected_filter_idx -= 1;
                 }
                 state.status_message = Some("Filter deleted".to_string());
@@ -282,11 +285,8 @@ fn handle_filter_mode(state: &mut AppState, key: KeyEvent) {
 }
 
 fn handle_source_select_mode(state: &mut AppState, key: KeyEvent) {
-    match key.code {
-        KeyCode::Esc => {
-            state.mode = InputMode::Normal;
-        }
-        // Future: handle up/down for source selection
-        _ => {}
+    // Future: handle up/down for source selection
+    if key.code == KeyCode::Esc {
+        state.mode = InputMode::Normal;
     }
 }

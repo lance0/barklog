@@ -33,9 +33,9 @@ impl LogSource for SshSource {
             // Use ssh to run tail -F on the remote host
             let mut cmd = Command::new("ssh");
             cmd.arg("-o")
-                .arg("BatchMode=yes")  // Disable password prompts
+                .arg("BatchMode=yes") // Disable password prompts
                 .arg("-o")
-                .arg("StrictHostKeyChecking=accept-new")  // Accept new host keys
+                .arg("StrictHostKeyChecking=accept-new") // Accept new host keys
                 .arg(&host)
                 .arg("tail")
                 .arg("-F")
@@ -48,7 +48,9 @@ impl LogSource for SshSource {
             let mut child = match cmd.spawn() {
                 Ok(child) => child,
                 Err(e) => {
-                    let _ = tx.send(LogEvent::Error(format!("Failed to run ssh: {}", e))).await;
+                    let _ = tx
+                        .send(LogEvent::Error(format!("Failed to run ssh: {}", e)))
+                        .await;
                     return;
                 }
             };
@@ -56,7 +58,9 @@ impl LogSource for SshSource {
             let stdout = match child.stdout.take() {
                 Some(stdout) => stdout,
                 None => {
-                    let _ = tx.send(LogEvent::Error("Failed to get stdout".to_string())).await;
+                    let _ = tx
+                        .send(LogEvent::Error("Failed to get stdout".to_string()))
+                        .await;
                     return;
                 }
             };
