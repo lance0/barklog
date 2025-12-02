@@ -1,4 +1,4 @@
-# Bark
+# bark
 
 A fast, keyboard-driven TUI for exploring logs from files, Docker containers, Kubernetes pods, and remote servers.
 
