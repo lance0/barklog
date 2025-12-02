@@ -1,0 +1,15 @@
+[package]
+name = "bark"
+version = "0.1.0"
+edition = "2024"
+description = "A lazygit style Rust TUI for exploring logs from files and containers in real time"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+ratatui = "0.29"
+crossterm = "0.28"
+anyhow = "1"
+regex = "1"
+ansi-to-tui = "7"
+async-trait = "0.1"
+tui-textarea = "0.7"

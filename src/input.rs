@@ -1,0 +1,215 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use tui_textarea::Input;
+
+use crate::app::{AppState, FocusedPanel, InputMode};
+
+/// Handle a mouse event
+pub fn handle_mouse(state: &mut AppState, mouse: MouseEvent, page_size: usize) {
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            for _ in 0..3 {
+                state.scroll_up();
+            }
+        }
+        MouseEventKind::ScrollDown => {
+            for _ in 0..3 {
+                state.scroll_down();
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Handle a key event and update app state accordingly
+pub fn handle_key(state: &mut AppState, key: KeyEvent, page_size: usize) {
+    // Help overlay takes priority
+    if state.show_help {
+        if matches!(key.code, KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?')) {
+            state.show_help = false;
+        }
+        return;
+    }
+
+    match state.mode {
+        InputMode::Normal => handle_normal_mode(state, key, page_size),
+        InputMode::FilterEditing => handle_filter_mode(state, key),
+        InputMode::SourceSelect => handle_source_select_mode(state, key),
+    }
+}
+
+fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
+    match key.code {
+        // Quit
+        KeyCode::Char('q') => {
+            state.should_quit = true;
+        }
+        // Ctrl+C also quits
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            state.should_quit = true;
+        }
+
+        // Help
+        KeyCode::Char('?') => {
+            state.show_help = true;
+        }
+
+        // Toggle side panel
+        KeyCode::Char('b') => {
+            state.toggle_side_panel();
+        }
+
+        // Cycle focus between panels
+        KeyCode::Tab => {
+            state.cycle_focus();
+        }
+
+        // Navigation (context-dependent on focused panel)
+        KeyCode::Char('j') | KeyCode::Down => {
+            match state.focused_panel {
+                FocusedPanel::LogView => state.scroll_down(),
+                FocusedPanel::Sources => {
+                    if state.current_source_idx < state.sources.len() - 1 {
+                        state.current_source_idx += 1;
+                    }
+                }
+                FocusedPanel::Filters => {
+                    if !state.saved_filters.is_empty() && state.selected_filter_idx < state.saved_filters.len() - 1 {
+                        state.selected_filter_idx += 1;
+                    }
+                }
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            match state.focused_panel {
+                FocusedPanel::LogView => state.scroll_up(),
+                FocusedPanel::Sources => {
+                    if state.current_source_idx > 0 {
+                        state.current_source_idx -= 1;
+                    }
+                }
+                FocusedPanel::Filters => {
+                    if state.selected_filter_idx > 0 {
+                        state.selected_filter_idx -= 1;
+                    }
+                }
+            }
+        }
+
+        // Enter to apply selected saved filter
+        KeyCode::Enter => {
+            if state.focused_panel == FocusedPanel::Filters && !state.saved_filters.is_empty() {
+                state.apply_saved_filter(state.selected_filter_idx);
+            }
+        }
+
+        KeyCode::PageDown | KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            state.scroll_page_down(page_size);
+        }
+        KeyCode::PageUp | KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            state.scroll_page_up(page_size);
+        }
+        KeyCode::Char('g') => {
+            state.go_to_top();
+        }
+        KeyCode::Char('G') => {
+            state.go_to_bottom();
+        }
+
+        // Enter filter mode
+        KeyCode::Char('/') => {
+            state.mode = InputMode::FilterEditing;
+            state.focused_panel = FocusedPanel::LogView;
+            // Clear textarea for new filter input
+            state.filter_textarea.select_all();
+            state.filter_textarea.cut();
+        }
+
+        // Toggle regex mode
+        KeyCode::Char('r') => {
+            state.toggle_regex_mode();
+        }
+
+        // Toggle line wrap
+        KeyCode::Char('w') => {
+            state.toggle_line_wrap();
+        }
+
+        // Toggle level colors
+        KeyCode::Char('c') => {
+            state.toggle_level_colors();
+        }
+
+        // Save current filter
+        KeyCode::Char('s') => {
+            if state.active_filter.is_some() {
+                // Simple auto-naming based on pattern
+                let pattern = state.filter_input();
+                let name = if pattern.len() > 10 {
+                    format!("{}...", &pattern[..10])
+                } else {
+                    pattern
+                };
+                state.save_current_filter(name);
+            } else {
+                state.status_message = Some("No active filter to save".to_string());
+            }
+        }
+
+        // Delete selected saved filter
+        KeyCode::Char('x') | KeyCode::Delete => {
+            if state.focused_panel == FocusedPanel::Filters && !state.saved_filters.is_empty() {
+                state.saved_filters.remove(state.selected_filter_idx);
+                if state.selected_filter_idx >= state.saved_filters.len() && state.selected_filter_idx > 0 {
+                    state.selected_filter_idx -= 1;
+                }
+                state.status_message = Some("Filter deleted".to_string());
+            }
+        }
+
+        // Clear filter
+        KeyCode::Esc => {
+            if state.active_filter.is_some() {
+                state.active_filter = None;
+                state.filter_textarea.select_all();
+                state.filter_textarea.cut();
+                state.recompute_filter();
+                state.status_message = Some("Filter cleared".to_string());
+            }
+        }
+
+        _ => {}
+    }
+}
+
+fn handle_filter_mode(state: &mut AppState, key: KeyEvent) {
+    match key.code {
+        KeyCode::Enter => {
+            state.apply_filter();
+        }
+        KeyCode::Esc => {
+            state.cancel_filter();
+        }
+        // Toggle regex mode with Ctrl+R
+        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            state.toggle_regex_mode();
+        }
+        _ => {
+            // Forward all other keys to the textarea
+            let input = Input::from(key);
+            if state.filter_textarea.input(input) {
+                // Text changed, mark for debounce
+                state.filter_changed();
+            }
+        }
+    }
+}
+
+fn handle_source_select_mode(state: &mut AppState, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            state.mode = InputMode::Normal;
+        }
+        // Future: handle up/down for source selection
+        _ => {}
+    }
+}
