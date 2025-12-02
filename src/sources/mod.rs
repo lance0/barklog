@@ -1,3 +1,11 @@
+//! Log source abstraction and implementations.
+//!
+//! Provides a unified `LogSource` trait with implementations for:
+//! - Local files (via `tail -F`)
+//! - Docker containers (via `docker logs -f`)
+//! - Kubernetes pods (via `kubectl logs -f`)
+//! - Remote files via SSH (via `ssh ... tail -F`)
+
 pub mod docker;
 pub mod file;
 pub mod k8s;

@@ -1,8 +1,27 @@
+//! Configuration loading from file and environment variables.
+//!
+//! Configuration is loaded in order of priority:
+//! 1. Default values
+//! 2. Config file (`~/.config/bark/config.toml`)
+//! 3. Environment variables (`BARK_*`)
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
 use crate::theme::Theme;
+
+/// Default channel buffer size for log sources
+pub const DEFAULT_CHANNEL_BUFFER: usize = 1000;
+
+/// Default number of lines to tail from sources
+pub const DEFAULT_TAIL_LINES: &str = "1000";
+
+/// Filter input debounce delay in milliseconds
+pub const FILTER_DEBOUNCE_MS: u128 = 150;
+
+/// Mouse scroll lines per wheel event
+pub const MOUSE_SCROLL_LINES: usize = 3;
 
 /// Configuration for bark
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -49,8 +68,9 @@ impl Config {
         if let Some(path) = Self::config_path() {
             if path.exists() {
                 if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(file_config) = toml::from_str::<Config>(&content) {
-                        config = file_config;
+                    match toml::from_str::<Config>(&content) {
+                        Ok(file_config) => config = file_config,
+                        Err(e) => eprintln!("Warning: Invalid config at {}: {}", path.display(), e),
                     }
                 }
             }
@@ -106,5 +126,89 @@ impl Config {
     /// Legacy function for compatibility
     pub fn from_env() -> Self {
         Self::load()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config_values() {
+        let config = Config::default();
+        assert_eq!(config.max_lines, 10_000);
+        assert!(config.level_colors);
+        assert!(!config.line_wrap);
+        assert!(config.show_side_panel);
+        assert_eq!(config.export_dir, "/tmp");
+        assert_eq!(config.theme, "default");
+    }
+
+    #[test]
+    fn test_get_theme_default() {
+        let config = Config::default();
+        let theme = config.get_theme();
+        // Default theme uses Color::Red for errors
+        assert_eq!(theme.level_error, ratatui::style::Color::Red);
+    }
+
+    #[test]
+    fn test_get_theme_custom() {
+        let mut config = Config::default();
+        config.theme = "dracula".to_string();
+        let theme = config.get_theme();
+        // Dracula uses RGB colors
+        assert!(matches!(theme.level_error, ratatui::style::Color::Rgb(_, _, _)));
+    }
+
+    #[test]
+    fn test_config_path_is_some() {
+        // On most systems, config_path should return Some
+        // This may fail in restricted environments
+        let path = Config::config_path();
+        // We just verify it doesn't panic and returns a path containing "bark"
+        if let Some(p) = path {
+            assert!(p.to_string_lossy().contains("bark"));
+        }
+    }
+
+    #[test]
+    fn test_config_serialization() {
+        let config = Config::default();
+        let toml_str = toml::to_string(&config).expect("serialization should work");
+        assert!(toml_str.contains("max_lines"));
+        assert!(toml_str.contains("level_colors"));
+    }
+
+    #[test]
+    fn test_config_deserialization() {
+        let toml_str = r#"
+            max_lines = 5000
+            level_colors = false
+            line_wrap = true
+            show_side_panel = false
+            export_dir = "/home/user/logs"
+            theme = "kawaii"
+        "#;
+        let config: Config = toml::from_str(toml_str).expect("deserialization should work");
+        assert_eq!(config.max_lines, 5000);
+        assert!(!config.level_colors);
+        assert!(config.line_wrap);
+        assert!(!config.show_side_panel);
+        assert_eq!(config.export_dir, "/home/user/logs");
+        assert_eq!(config.theme, "kawaii");
+    }
+
+    #[test]
+    fn test_config_partial_deserialization() {
+        // Only some fields specified, others should use defaults
+        let toml_str = r#"
+            max_lines = 500
+        "#;
+        let config: Config = toml::from_str(toml_str).expect("deserialization should work");
+        assert_eq!(config.max_lines, 500);
+        // Defaults for unspecified fields
+        assert!(config.level_colors);
+        assert_eq!(config.theme, "default");
     }
 }

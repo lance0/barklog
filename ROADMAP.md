@@ -53,6 +53,17 @@
 - [x] Built-in themes: default, kawaii, cyber, dracula, monochrome
 - [x] Theme selection via config file and environment variable
 
+## Release Prep ✅
+
+- [x] Unit tests for core modules (filter, app, theme, config) - 51 tests
+- [x] Module-level documentation (doc comments)
+- [x] Centralized constants (buffer sizes, debounce, scroll lines)
+- [x] Improved error messages with actionable hints
+- [x] Config error reporting (warns on invalid TOML)
+- [x] CLI help with examples and environment variables
+- [x] README troubleshooting section
+- [x] CI workflow fix (main → master branch)
+
 ## Future Ideas
 
 - [ ] Multiple panes (split view)

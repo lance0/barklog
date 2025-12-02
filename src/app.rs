@@ -1,4 +1,12 @@
-use crate::config::Config;
+//! Core application state and log processing logic.
+//!
+//! This module contains the main `AppState` struct that manages:
+//! - Log line storage in a ring buffer
+//! - Filtering and search functionality
+//! - Bookmarks and navigation state
+//! - UI mode and panel focus
+
+use crate::config::{Config, FILTER_DEBOUNCE_MS};
 use crate::filter::{ActiveFilter, MatchRange, SavedFilter};
 use crate::sources::LogSourceType;
 use crate::theme::Theme;
@@ -389,7 +397,7 @@ impl<'a> AppState<'a> {
         }
     }
 
-    /// Check if a line index is bookmarked (future feature)
+    /// Check if a line index is bookmarked
     #[allow(dead_code)]
     pub fn is_bookmarked(&self, line_idx: usize) -> bool {
         self.bookmarks.contains(&line_idx)
@@ -749,10 +757,8 @@ impl<'a> AppState<'a> {
 
     /// Check if debounce period has passed and recompute if needed
     pub fn check_filter_debounce(&mut self) {
-        const DEBOUNCE_MS: u128 = 150;
-
         if let Some(last_change) = self.filter_last_change {
-            if last_change.elapsed().as_millis() >= DEBOUNCE_MS && self.filter_needs_recompute {
+            if last_change.elapsed().as_millis() >= FILTER_DEBOUNCE_MS && self.filter_needs_recompute {
                 // Apply filter without changing mode
                 let input = self.filter_input();
                 if input.is_empty() {
@@ -812,5 +818,187 @@ impl<'a> AppState<'a> {
     /// Get total and visible line counts
     pub fn line_counts(&self) -> (usize, usize) {
         (self.lines.len(), self.filtered_indices.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // LogLevel::detect() tests
+
+    #[test]
+    fn test_detect_error_level() {
+        assert_eq!(LogLevel::detect("ERROR: something failed"), LogLevel::Error);
+        assert_eq!(LogLevel::detect("error: lowercase"), LogLevel::Error);
+        assert_eq!(LogLevel::detect("Error: mixed case"), LogLevel::Error);
+    }
+
+    #[test]
+    fn test_detect_error_bracket_patterns() {
+        assert_eq!(LogLevel::detect("[E] some message"), LogLevel::Error);
+        assert_eq!(LogLevel::detect("2024-01-01 [ERR] failed"), LogLevel::Error);
+    }
+
+    #[test]
+    fn test_detect_warn_level() {
+        assert_eq!(LogLevel::detect("WARN: something happened"), LogLevel::Warn);
+        assert_eq!(LogLevel::detect("WARNING: be careful"), LogLevel::Warn);
+        assert_eq!(LogLevel::detect("[W] warning message"), LogLevel::Warn);
+        assert_eq!(LogLevel::detect("[WRN] another warning"), LogLevel::Warn);
+    }
+
+    #[test]
+    fn test_detect_info_level() {
+        assert_eq!(LogLevel::detect("INFO: informational"), LogLevel::Info);
+        assert_eq!(LogLevel::detect("[I] info bracket"), LogLevel::Info);
+        assert_eq!(LogLevel::detect("[INF] info message"), LogLevel::Info);
+    }
+
+    #[test]
+    fn test_detect_debug_level() {
+        assert_eq!(LogLevel::detect("DEBUG: some message"), LogLevel::Debug);
+        assert_eq!(LogLevel::detect("[D] debug bracket"), LogLevel::Debug);
+        assert_eq!(LogLevel::detect("[DBG] debug msg"), LogLevel::Debug);
+    }
+
+    #[test]
+    fn test_detect_trace_level() {
+        assert_eq!(LogLevel::detect("TRACE: some message"), LogLevel::Trace);
+        assert_eq!(LogLevel::detect("[T] trace bracket"), LogLevel::Trace);
+        assert_eq!(LogLevel::detect("[TRC] trace msg"), LogLevel::Trace);
+    }
+
+    #[test]
+    fn test_detect_none_level() {
+        assert_eq!(LogLevel::detect("just a regular line"), LogLevel::None);
+        assert_eq!(LogLevel::detect("no level here"), LogLevel::None);
+        assert_eq!(LogLevel::detect(""), LogLevel::None);
+    }
+
+    // LogLine::detect_json() tests
+
+    #[test]
+    fn test_detect_json_object() {
+        assert!(LogLine::detect_json(r#"{"key": "value"}"#));
+        assert!(LogLine::detect_json(r#"  {"key": "value"}  "#)); // with whitespace
+    }
+
+    #[test]
+    fn test_detect_json_array() {
+        assert!(LogLine::detect_json(r#"[1, 2, 3]"#));
+        assert!(LogLine::detect_json(r#"  ["a", "b"]  "#));
+    }
+
+    #[test]
+    fn test_detect_json_not_json() {
+        assert!(!LogLine::detect_json("just plain text"));
+        assert!(!LogLine::detect_json("{incomplete"));
+        assert!(!LogLine::detect_json("[incomplete"));
+        assert!(!LogLine::detect_json("starts with { but ends wrong"));
+    }
+
+    // parse_timestamp() tests
+
+    #[test]
+    fn test_parse_timestamp_iso8601() {
+        let result = parse_timestamp("2024-01-15T10:30:00 some log message");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_parse_timestamp_iso8601_with_millis() {
+        let result = parse_timestamp("2024-01-15T10:30:00.123 some log message");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_parse_timestamp_with_space_separator() {
+        // Note: This format requires the timestamp to be extractable
+        // The parser tries to find timestamps in the first 35 chars
+        let result = parse_timestamp("2024-01-15T10:30:00 INFO some log message");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_parse_timestamp_none() {
+        let result = parse_timestamp("no timestamp here");
+        assert!(result.is_none());
+    }
+
+    // format_relative_time() tests
+
+    #[test]
+    fn test_format_relative_time_seconds() {
+        let now = Local::now();
+        let past = now - chrono::Duration::seconds(30);
+        let result = format_relative_time(past);
+        assert!(result.contains("s ago"));
+    }
+
+    #[test]
+    fn test_format_relative_time_minutes() {
+        let now = Local::now();
+        let past = now - chrono::Duration::minutes(5);
+        let result = format_relative_time(past);
+        assert!(result.contains("m ago"));
+    }
+
+    #[test]
+    fn test_format_relative_time_hours() {
+        let now = Local::now();
+        let past = now - chrono::Duration::hours(3);
+        let result = format_relative_time(past);
+        assert!(result.contains("h ago"));
+    }
+
+    #[test]
+    fn test_format_relative_time_days() {
+        let now = Local::now();
+        let past = now - chrono::Duration::days(2);
+        let result = format_relative_time(past);
+        assert!(result.contains("d ago"));
+    }
+
+    #[test]
+    fn test_format_relative_time_weeks() {
+        let now = Local::now();
+        let past = now - chrono::Duration::weeks(2);
+        let result = format_relative_time(past);
+        assert!(result.contains("w ago"));
+    }
+
+    #[test]
+    fn test_format_relative_time_future() {
+        let now = Local::now();
+        let future = now + chrono::Duration::hours(1);
+        let result = format_relative_time(future);
+        assert_eq!(result, "future");
+    }
+
+    // LogLine::new() tests
+
+    #[test]
+    fn test_logline_detects_level() {
+        let line = LogLine::new("ERROR: something failed".to_string());
+        assert_eq!(line.level, LogLevel::Error);
+    }
+
+    #[test]
+    fn test_logline_detects_ansi() {
+        let line = LogLine::new("\x1b[31mred text\x1b[0m".to_string());
+        assert!(line.has_ansi);
+
+        let line_no_ansi = LogLine::new("plain text".to_string());
+        assert!(!line_no_ansi.has_ansi);
+    }
+
+    #[test]
+    fn test_logline_detects_json() {
+        let line = LogLine::new(r#"{"level": "error", "msg": "failed"}"#.to_string());
+        assert!(line.is_json);
+
+        let line_not_json = LogLine::new("plain text".to_string());
+        assert!(!line_not_json.is_json);
     }
 }

@@ -2,7 +2,7 @@
 
 All notable changes to Bark will be documented in this file.
 
-## [Unreleased]
+## [1.0.0] - 2025-12-02
 
 ### Added
 - Initial project structure with modular architecture
@@ -48,6 +48,11 @@ All notable changes to Bark will be documented in this file.
 - Panic hook for clean terminal restoration
 - Debounced filter recomputation to avoid lag during typing
 - serde-based config serialization
+- **Unit tests** for filter, app, theme, and config modules (51 tests)
+- **Module documentation** with doc comments across all source files
+- **Centralized constants** for buffer sizes, debounce timing, and scroll behavior
+- **Improved error messages** with actionable hints for Docker, Kubernetes, and SSH sources
+- **Config error reporting** - warns on invalid TOML instead of silent failure
 
 ## Configuration
 

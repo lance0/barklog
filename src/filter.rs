@@ -1,3 +1,8 @@
+//! Log filtering with substring and regex support.
+//!
+//! Provides `ActiveFilter` for real-time log filtering with
+//! case-insensitive substring matching or regex patterns.
+
 use regex::Regex;
 
 /// A range representing a match within a line
@@ -102,4 +107,100 @@ pub struct SavedFilter {
     pub name: String,
     pub pattern: String,
     pub is_regex: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ActiveFilter::matches() tests
+
+    #[test]
+    fn test_substring_match_case_insensitive() {
+        let filter = ActiveFilter::new("error".to_string(), false);
+        assert!(filter.matches("ERROR: something failed"));
+        assert!(filter.matches("Error: something failed"));
+        assert!(filter.matches("an error occurred"));
+    }
+
+    #[test]
+    fn test_substring_no_match() {
+        let filter = ActiveFilter::new("error".to_string(), false);
+        assert!(!filter.matches("warning: something happened"));
+        assert!(!filter.matches("INFO: all good"));
+    }
+
+    #[test]
+    fn test_regex_match_valid() {
+        let filter = ActiveFilter::new(r"ERROR|WARN".to_string(), true);
+        assert!(filter.matches("ERROR: something failed"));
+        assert!(filter.matches("WARN: something happened"));
+        assert!(!filter.matches("INFO: all good"));
+    }
+
+    #[test]
+    fn test_regex_match_with_pattern() {
+        let filter = ActiveFilter::new(r"\d{3}-\d{4}".to_string(), true);
+        assert!(filter.matches("Phone: 555-1234"));
+        assert!(!filter.matches("Phone: 5551234"));
+    }
+
+    #[test]
+    fn test_regex_invalid_falls_back_to_substring() {
+        // Invalid regex (unclosed bracket)
+        let filter = ActiveFilter::new("[invalid".to_string(), true);
+        // Should fall back to substring match
+        assert!(filter.matches("this has [invalid in it"));
+        assert!(!filter.matches("this does not"));
+    }
+
+    // ActiveFilter::find_matches() tests
+
+    #[test]
+    fn test_find_matches_substring_single() {
+        let filter = ActiveFilter::new("error".to_string(), false);
+        let matches = filter.find_matches("an ERROR occurred");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].start, 3);
+        assert_eq!(matches[0].end, 8);
+    }
+
+    #[test]
+    fn test_find_matches_substring_multiple() {
+        let filter = ActiveFilter::new("test".to_string(), false);
+        let matches = filter.find_matches("test one TEST two test");
+        assert_eq!(matches.len(), 3);
+    }
+
+    #[test]
+    fn test_find_matches_regex() {
+        let filter = ActiveFilter::new(r"\d+".to_string(), true);
+        let matches = filter.find_matches("abc 123 def 456");
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].start, 4);
+        assert_eq!(matches[0].end, 7);
+        assert_eq!(matches[1].start, 12);
+        assert_eq!(matches[1].end, 15);
+    }
+
+    #[test]
+    fn test_find_matches_empty_pattern() {
+        let filter = ActiveFilter::new("".to_string(), false);
+        let matches = filter.find_matches("some text");
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn test_find_matches_no_match() {
+        let filter = ActiveFilter::new("xyz".to_string(), false);
+        let matches = filter.find_matches("abc def");
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn test_find_matches_invalid_regex_fallback() {
+        let filter = ActiveFilter::new("[bad".to_string(), true);
+        let matches = filter.find_matches("has [bad regex");
+        assert_eq!(matches.len(), 1);
+    }
 }

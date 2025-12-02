@@ -5,6 +5,7 @@ use tokio::sync::mpsc;
 
 use super::{LogEvent, LogSource};
 use crate::app::LogLine;
+use crate::config::{DEFAULT_CHANNEL_BUFFER, DEFAULT_TAIL_LINES};
 use async_trait::async_trait;
 
 /// SSH remote file log source
@@ -24,7 +25,7 @@ impl SshSource {
 #[async_trait]
 impl LogSource for SshSource {
     async fn stream(&self) -> mpsc::Receiver<LogEvent> {
-        let (tx, rx) = mpsc::channel(1000);
+        let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_BUFFER);
 
         let host = self.host.clone();
         let path = self.path.clone();
@@ -40,7 +41,7 @@ impl LogSource for SshSource {
                 .arg("tail")
                 .arg("-F")
                 .arg("-n")
-                .arg("1000")
+                .arg(DEFAULT_TAIL_LINES)
                 .arg(&path)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -49,7 +50,10 @@ impl LogSource for SshSource {
                 Ok(child) => child,
                 Err(e) => {
                     let _ = tx
-                        .send(LogEvent::Error(format!("Failed to run ssh: {}", e)))
+                        .send(LogEvent::Error(format!(
+                            "Failed to connect to '{}' for '{}': {}. Check SSH key authentication.",
+                            host, path, e
+                        )))
                         .await;
                     return;
                 }

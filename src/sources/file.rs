@@ -5,6 +5,7 @@ use tokio::sync::mpsc;
 
 use super::{LogEvent, LogSource};
 use crate::app::LogLine;
+use crate::config::DEFAULT_CHANNEL_BUFFER;
 
 /// A log source that reads from a file using tail -F
 pub struct FileSource {
@@ -20,7 +21,7 @@ impl FileSource {
 #[async_trait::async_trait]
 impl LogSource for FileSource {
     async fn stream(&self) -> mpsc::Receiver<LogEvent> {
-        let (tx, rx) = mpsc::channel(1000);
+        let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_BUFFER);
         let path = self.path.clone();
 
         tokio::spawn(async move {

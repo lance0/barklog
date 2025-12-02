@@ -1,3 +1,8 @@
+//! Color theme definitions for the UI.
+//!
+//! Provides 5 built-in themes: default, kawaii, cyber, dracula, monochrome.
+//! Themes can be selected via the `theme` config option or `BARK_THEME` env var.
+
 use ratatui::style::Color;
 
 /// All themeable colors in the application
@@ -345,5 +350,92 @@ impl Theme {
             "dracula" => Self::dracula(),
             _ => Self::default_theme(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_by_name_default() {
+        let theme = Theme::by_name("default");
+        assert_eq!(theme.level_error, Color::Red);
+    }
+
+    #[test]
+    fn test_by_name_kawaii() {
+        let theme = Theme::by_name("kawaii");
+        // Kawaii uses RGB colors, not standard
+        assert!(matches!(theme.level_error, Color::Rgb(_, _, _)));
+    }
+
+    #[test]
+    fn test_by_name_cyber() {
+        let theme = Theme::by_name("cyber");
+        assert!(matches!(theme.level_error, Color::Rgb(_, _, _)));
+    }
+
+    #[test]
+    fn test_by_name_cyber_alias() {
+        let theme = Theme::by_name("futuristic");
+        // Should be same as cyber
+        let cyber = Theme::by_name("cyber");
+        assert_eq!(
+            format!("{:?}", theme.level_error),
+            format!("{:?}", cyber.level_error)
+        );
+    }
+
+    #[test]
+    fn test_by_name_dracula() {
+        let theme = Theme::by_name("dracula");
+        assert!(matches!(theme.level_error, Color::Rgb(_, _, _)));
+    }
+
+    #[test]
+    fn test_by_name_monochrome() {
+        let theme = Theme::by_name("monochrome");
+        // Monochrome uses grayscale RGB
+        assert!(matches!(theme.level_error, Color::Rgb(255, 255, 255)));
+    }
+
+    #[test]
+    fn test_by_name_mono_alias() {
+        let theme = Theme::by_name("mono");
+        let monochrome = Theme::by_name("monochrome");
+        assert_eq!(
+            format!("{:?}", theme.level_error),
+            format!("{:?}", monochrome.level_error)
+        );
+    }
+
+    #[test]
+    fn test_by_name_unknown_returns_default() {
+        let theme = Theme::by_name("unknown_theme");
+        let default = Theme::default_theme();
+        assert_eq!(theme.level_error, default.level_error);
+    }
+
+    #[test]
+    fn test_by_name_case_insensitive() {
+        let lower = Theme::by_name("kawaii");
+        let upper = Theme::by_name("KAWAII");
+        let mixed = Theme::by_name("KaWaIi");
+        assert_eq!(
+            format!("{:?}", lower.level_error),
+            format!("{:?}", upper.level_error)
+        );
+        assert_eq!(
+            format!("{:?}", lower.level_error),
+            format!("{:?}", mixed.level_error)
+        );
+    }
+
+    #[test]
+    fn test_default_trait() {
+        let theme = Theme::default();
+        let default = Theme::default_theme();
+        assert_eq!(theme.level_error, default.level_error);
     }
 }

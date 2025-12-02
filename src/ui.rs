@@ -1,3 +1,7 @@
+//! Terminal UI rendering using ratatui.
+//!
+//! Renders the main log view, side panel, status bar, and help overlay.
+
 use ansi_to_tui::IntoText;
 use ratatui::{
     Frame,

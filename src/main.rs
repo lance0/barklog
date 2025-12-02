@@ -191,6 +191,12 @@ fn print_help() {
     println!("    --k8s            Follow Kubernetes pod logs");
     println!("    --ssh            Tail a remote file via SSH");
     println!();
+    println!("EXAMPLES:");
+    println!("    bark /var/log/syslog");
+    println!("    bark --docker nginx");
+    println!("    bark --k8s my-app -n production");
+    println!("    bark --ssh user@server /var/log/app.log");
+    println!();
     println!("KEYBOARD SHORTCUTS:");
     println!("    j/k              Scroll down/up");
     println!("    g/G              Go to top/bottom");
@@ -204,6 +210,12 @@ fn print_help() {
     println!("    e                Export filtered lines");
     println!("    ?                Show full help");
     println!("    q                Quit");
+    println!();
+    println!("ENVIRONMENT:");
+    println!("    BARK_MAX_LINES      Maximum lines in buffer (default: 10000)");
+    println!("    BARK_THEME          Color theme (default, kawaii, cyber, dracula, monochrome)");
+    println!("    BARK_LEVEL_COLORS   Enable level coloring (1/true or 0/false)");
+    println!("    BARK_LINE_WRAP      Enable line wrapping (1/true or 0/false)");
     println!();
     println!("CONFIG:");
     println!("    ~/.config/bark/config.toml");

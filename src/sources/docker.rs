@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 
 use super::{LogEvent, LogSource};
 use crate::app::LogLine;
+use crate::config::{DEFAULT_CHANNEL_BUFFER, DEFAULT_TAIL_LINES};
 
 /// A log source that reads from a Docker container using docker logs -f
 pub struct DockerSource {
@@ -19,7 +20,7 @@ impl DockerSource {
 #[async_trait::async_trait]
 impl LogSource for DockerSource {
     async fn stream(&self) -> mpsc::Receiver<LogEvent> {
-        let (tx, rx) = mpsc::channel(1000);
+        let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_BUFFER);
         let container = self.container.clone();
 
         tokio::spawn(async move {
@@ -27,7 +28,7 @@ impl LogSource for DockerSource {
                 .arg("logs")
                 .arg("-f")
                 .arg("--tail")
-                .arg("1000")
+                .arg(DEFAULT_TAIL_LINES)
                 .arg(&container)
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
@@ -73,8 +74,8 @@ impl LogSource for DockerSource {
                 Err(e) => {
                     let _ = tx
                         .send(LogEvent::Error(format!(
-                            "Failed to spawn docker logs: {}",
-                            e
+                            "Failed to start docker logs for '{}': {}. Is Docker installed and running?",
+                            container, e
                         )))
                         .await;
                     let _ = tx.send(LogEvent::EndOfStream).await;

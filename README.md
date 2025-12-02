@@ -151,6 +151,37 @@ The status bar shows active modes:
 - **For Kubernetes**: `kubectl` configured
 - **For SSH**: SSH key authentication recommended
 
+## Troubleshooting
+
+### Docker source not working
+
+- Ensure Docker is installed and running: `docker ps`
+- Check container name exists: `docker ps -a | grep <container>`
+- Verify you have permissions: try `docker logs <container>` directly
+
+### Kubernetes source not working
+
+- Verify kubectl is configured: `kubectl cluster-info`
+- Check pod exists: `kubectl get pods [-n namespace]`
+- For multi-container pods, specify `-c container_name`
+
+### SSH source not working
+
+- Ensure SSH key authentication is set up (bark uses `BatchMode=yes`)
+- Test connection manually: `ssh user@host "tail -1 /path/to/log"`
+- Check the remote file exists and is readable
+
+### High memory usage
+
+- Reduce buffer size: `export BARK_MAX_LINES=5000` or set in config
+- Use filters to reduce visible lines
+
+### Filter not matching expected lines
+
+- Check if regex mode is enabled (status bar shows `[.*]`)
+- Substring matching is case-insensitive by default
+- Press `r` to toggle between regex and substring mode
+
 ## License
 
 Licensed under either of:

@@ -1,18 +1,23 @@
+//! Keyboard and mouse input handling.
+//!
+//! Maps key events to application actions based on current input mode.
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use tui_textarea::Input;
 
 use crate::app::{AppState, FocusedPanel, InputMode};
+use crate::config::MOUSE_SCROLL_LINES;
 
 /// Handle a mouse event
 pub fn handle_mouse(state: &mut AppState, mouse: MouseEvent, _page_size: usize) {
     match mouse.kind {
         MouseEventKind::ScrollUp => {
-            for _ in 0..3 {
+            for _ in 0..MOUSE_SCROLL_LINES {
                 state.scroll_up();
             }
         }
         MouseEventKind::ScrollDown => {
-            for _ in 0..3 {
+            for _ in 0..MOUSE_SCROLL_LINES {
                 state.scroll_down();
             }
         }

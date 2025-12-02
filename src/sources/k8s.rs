@@ -5,6 +5,7 @@ use tokio::sync::mpsc;
 
 use super::{LogEvent, LogSource};
 use crate::app::LogLine;
+use crate::config::{DEFAULT_CHANNEL_BUFFER, DEFAULT_TAIL_LINES};
 use async_trait::async_trait;
 
 /// Kubernetes pod log source using kubectl
@@ -30,7 +31,7 @@ impl K8sSource {
 #[async_trait]
 impl LogSource for K8sSource {
     async fn stream(&self) -> mpsc::Receiver<LogEvent> {
-        let (tx, rx) = mpsc::channel(1000);
+        let (tx, rx) = mpsc::channel(DEFAULT_CHANNEL_BUFFER);
 
         let pod = self.pod.clone();
         let namespace = self.namespace.clone();
@@ -38,7 +39,7 @@ impl LogSource for K8sSource {
 
         tokio::spawn(async move {
             let mut cmd = Command::new("kubectl");
-            cmd.arg("logs").arg("-f").arg("--tail=1000");
+            cmd.arg("logs").arg("-f").arg(format!("--tail={}", DEFAULT_TAIL_LINES));
 
             if let Some(ns) = namespace {
                 cmd.arg("-n").arg(ns);
@@ -56,7 +57,10 @@ impl LogSource for K8sSource {
                 Ok(child) => child,
                 Err(e) => {
                     let _ = tx
-                        .send(LogEvent::Error(format!("Failed to run kubectl: {}", e)))
+                        .send(LogEvent::Error(format!(
+                            "Failed to run kubectl for pod '{}': {}. Is kubectl installed and configured?",
+                            pod, e
+                        )))
                         .await;
                     return;
                 }
