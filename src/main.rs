@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod discovery;
 mod filter;
 mod input;
 mod sources;
@@ -18,8 +19,10 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use app::AppState;
+use app::{AppState, PickerMode};
 use config::Config;
+use discovery::{discover_docker_containers, discover_k8s_pods};
+use input::{PickerAction, handle_picker_input};
 use sources::{
     LogEvent, LogSource, LogSourceType, SourcedLogEvent, file::FileSource, manager::SourceManager,
 };
@@ -104,7 +107,7 @@ async fn main() -> Result<()> {
     }));
 
     // Main event loop
-    let result = run_event_loop(&mut terminal, &mut state, &mut event_rx).await;
+    let result = run_event_loop(&mut terminal, &mut state, &mut event_rx, &mut source_manager).await;
 
     // Clean up source manager
     drop(source_manager);
@@ -250,6 +253,8 @@ fn print_help() {
     println!("    b                Toggle side panel");
     println!("    Tab              Cycle panel focus");
     println!("    Space            Toggle source visibility (in Sources panel)");
+    println!("    D                Open Docker container picker");
+    println!("    K                Open Kubernetes pod picker");
     println!("    e                Export filtered lines");
     println!("    ?                Show full help");
     println!("    q                Quit");
@@ -270,10 +275,24 @@ async fn run_event_loop<'a>(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut AppState<'a>,
     event_rx: &mut tokio::sync::mpsc::Receiver<SourcedLogEvent>,
+    source_manager: &mut SourceManager,
 ) -> Result<()> {
     loop {
         // Check filter debounce before drawing
         state.check_filter_debounce();
+
+        // Check if picker needs to trigger discovery
+        if state.picker.visible && state.picker.loading {
+            let result = match state.picker.mode {
+                PickerMode::Docker => discover_docker_containers(),
+                PickerMode::K8s => discover_k8s_pods(None),
+            };
+
+            match result {
+                Ok(sources) => state.picker.set_sources(sources),
+                Err(e) => state.picker.set_error(e.to_string()),
+            }
+        }
 
         // Draw UI
         terminal.draw(|frame| {
@@ -293,7 +312,45 @@ async fn run_event_loop<'a>(
                         Event::Key(key) => {
                             // Only handle key press events (not release)
                             if key.kind == KeyEventKind::Press {
-                                input::handle_key(state, key, page_size);
+                                // Handle picker mode separately
+                                if state.picker.visible {
+                                    let action = handle_picker_input(state, key);
+                                    if let PickerAction::AddSources(names, mode) = action {
+                                        // Add the selected sources
+                                        let count = names.len();
+                                        for name in names {
+                                            let source_id = state.sources.len();
+                                            let (source_type, source): (LogSourceType, Box<dyn LogSource>) = match mode {
+                                                PickerMode::Docker => {
+                                                    (
+                                                        LogSourceType::Docker { container: name.clone() },
+                                                        Box::new(sources::docker::DockerSource::new(name)),
+                                                    )
+                                                }
+                                                PickerMode::K8s => {
+                                                    (
+                                                        LogSourceType::K8s {
+                                                            pod: name.clone(),
+                                                            namespace: None,
+                                                            container: None,
+                                                        },
+                                                        Box::new(sources::k8s::K8sSource::new(name, None, None)),
+                                                    )
+                                                }
+                                            };
+
+                                            // Add to app state
+                                            state.add_source(source_type);
+
+                                            // Add to source manager
+                                            source_manager.add_source(source_id, source).await;
+                                        }
+
+                                        state.status_message = Some(format!("Added {} source(s)", count));
+                                    }
+                                } else {
+                                    input::handle_key(state, key, page_size);
+                                }
                             }
                         }
                         Event::Mouse(mouse) => {

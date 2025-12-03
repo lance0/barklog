@@ -7,6 +7,7 @@
 //! - UI mode and panel focus
 
 use crate::config::{Config, FILTER_DEBOUNCE_MS};
+use crate::discovery::{DiscoveredSource, SourceType};
 use crate::filter::{ActiveFilter, MatchRange, SavedFilter};
 use crate::sources::LogSourceType;
 use crate::theme::Theme;
@@ -201,6 +202,139 @@ pub enum SourceViewMode {
     SingleSource(usize),
 }
 
+/// Which picker is currently open
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PickerMode {
+    Docker,
+    K8s,
+}
+
+/// State for the container/pod picker overlay
+#[derive(Debug)]
+pub struct PickerState {
+    /// Whether the picker is visible
+    pub visible: bool,
+    /// Which picker mode (Docker or K8s)
+    pub mode: PickerMode,
+    /// Discovered sources
+    pub sources: Vec<DiscoveredSource>,
+    /// Currently selected index
+    pub selected: usize,
+    /// Which items are checked for multi-select
+    pub checked: Vec<bool>,
+    /// Loading state
+    pub loading: bool,
+    /// Error message if discovery failed
+    pub error: Option<String>,
+}
+
+impl Default for PickerState {
+    fn default() -> Self {
+        Self {
+            visible: false,
+            mode: PickerMode::Docker,
+            sources: Vec::new(),
+            selected: 0,
+            checked: Vec::new(),
+            loading: false,
+            error: None,
+        }
+    }
+}
+
+impl PickerState {
+    /// Open the picker with a specific mode
+    pub fn open(&mut self, mode: PickerMode) {
+        self.visible = true;
+        self.mode = mode;
+        self.sources.clear();
+        self.selected = 0;
+        self.checked.clear();
+        self.loading = true;
+        self.error = None;
+    }
+
+    /// Close the picker
+    pub fn close(&mut self) {
+        self.visible = false;
+        self.loading = false;
+    }
+
+    /// Set discovered sources
+    pub fn set_sources(&mut self, sources: Vec<DiscoveredSource>) {
+        self.checked = vec![false; sources.len()];
+        self.sources = sources;
+        self.selected = 0;
+        self.loading = false;
+    }
+
+    /// Set error state
+    pub fn set_error(&mut self, error: String) {
+        self.error = Some(error);
+        self.loading = false;
+    }
+
+    /// Navigate up
+    pub fn up(&mut self) {
+        if !self.sources.is_empty() && self.selected > 0 {
+            self.selected -= 1;
+        }
+    }
+
+    /// Navigate down
+    pub fn down(&mut self) {
+        if !self.sources.is_empty() && self.selected < self.sources.len() - 1 {
+            self.selected += 1;
+        }
+    }
+
+    /// Toggle checkbox on selected item
+    pub fn toggle_selected(&mut self) {
+        if let Some(checked) = self.checked.get_mut(self.selected) {
+            *checked = !*checked;
+        }
+    }
+
+    /// Get checked sources
+    pub fn get_checked_sources(&self) -> Vec<&DiscoveredSource> {
+        self.sources
+            .iter()
+            .zip(self.checked.iter())
+            .filter_map(|(source, &checked)| if checked { Some(source) } else { None })
+            .collect()
+    }
+
+    /// Check if any items are selected
+    pub fn has_selection(&self) -> bool {
+        self.checked.iter().any(|&c| c)
+    }
+
+    /// Get the single selected source (if none are checked, return current)
+    pub fn get_selected_source(&self) -> Option<&DiscoveredSource> {
+        // If items are checked, return the first checked one
+        if self.has_selection() {
+            self.get_checked_sources().first().copied()
+        } else {
+            // Otherwise return the currently highlighted one
+            self.sources.get(self.selected)
+        }
+    }
+
+    /// Convert a discovered source to LogSourceType
+    pub fn to_log_source_type(source: &DiscoveredSource) -> LogSourceType {
+        match source.source_type {
+            SourceType::Docker => LogSourceType::Docker {
+                container: source.name.clone(),
+            },
+            SourceType::K8s => LogSourceType::K8s {
+                pod: source.name.clone(),
+                namespace: None, // Could be enhanced to include namespace
+                container: None,
+            },
+        }
+    }
+}
+
 /// Main application state
 pub struct AppState<'a> {
     /// Ring buffer of log lines
@@ -265,6 +399,8 @@ pub struct AppState<'a> {
     pub theme: Theme,
     /// Last known viewport height (for auto-scroll calculations)
     pub viewport_height: usize,
+    /// Picker state for adding sources at runtime
+    pub picker: PickerState,
 }
 
 impl<'a> AppState<'a> {
@@ -308,6 +444,7 @@ impl<'a> AppState<'a> {
             bookmarks: Vec::new(),
             theme: config.get_theme(),
             viewport_height: 20, // Default, updated on first render
+            picker: PickerState::default(),
         }
     }
 

@@ -14,7 +14,7 @@ use ratatui::{
     },
 };
 
-use crate::app::{AppState, FocusedPanel, InputMode, LogLevel};
+use crate::app::{AppState, FocusedPanel, InputMode, LogLevel, PickerMode};
 use crate::filter::MatchRange;
 use crate::theme::Theme;
 
@@ -178,6 +178,11 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     // Draw help overlay if active
     if state.show_help {
         draw_help_overlay(frame, &state.theme);
+    }
+
+    // Draw picker overlay if active
+    if state.picker.visible {
+        draw_picker_overlay(frame, state);
     }
 }
 
@@ -770,7 +775,7 @@ fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
 
     // Center the help box
     let width = 50.min(area.width.saturating_sub(4));
-    let height = 30.min(area.height.saturating_sub(4));
+    let height = 34.min(area.height.saturating_sub(4));
     let x = (area.width - width) / 2;
     let y = (area.height - height) / 2;
     let help_area = Rect::new(x, y, width, height);
@@ -810,6 +815,11 @@ fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
         Line::from("  J            Toggle JSON pretty-print"),
         Line::from("  b            Toggle side panel"),
         Line::from("  Tab          Cycle panel focus"),
+        Line::from(""),
+        Line::from("Sources:"),
+        Line::from("  D            Docker container picker"),
+        Line::from("  K            Kubernetes pod picker"),
+        Line::from(""),
         Line::from("  ?            Toggle this help"),
         Line::from("  q            Quit"),
     ];
@@ -822,4 +832,136 @@ fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
 
     let paragraph = Paragraph::new(help_text).block(block);
     frame.render_widget(paragraph, help_area);
+}
+
+/// Draw the source picker overlay
+fn draw_picker_overlay(frame: &mut Frame, state: &AppState) {
+    let area = frame.area();
+    let theme = &state.theme;
+    let picker = &state.picker;
+
+    // Center the picker box
+    let width = 60.min(area.width.saturating_sub(4));
+    let height = 20.min(area.height.saturating_sub(4));
+    let x = (area.width - width) / 2;
+    let y = (area.height - height) / 2;
+    let picker_area = Rect::new(x, y, width, height);
+
+    // Clear background
+    frame.render_widget(Clear, picker_area);
+
+    let title = match picker.mode {
+        PickerMode::Docker => " Docker Containers ",
+        PickerMode::K8s => " Kubernetes Pods ",
+    };
+
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused))
+        .style(Style::default().bg(theme.help_bg));
+
+    let inner = block.inner(picker_area);
+    frame.render_widget(block, picker_area);
+
+    // Handle loading state
+    if picker.loading {
+        let loading = Paragraph::new("  Loading...")
+            .style(Style::default().fg(theme.empty_state));
+        frame.render_widget(loading, inner);
+        return;
+    }
+
+    // Handle error state
+    if let Some(ref error) = picker.error {
+        let err_lines = vec![
+            Line::from(Span::styled(
+                "Error:",
+                Style::default().fg(theme.level_error).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(error.as_str()),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Press Esc to close",
+                Style::default().fg(theme.empty_state),
+            )),
+        ];
+        let err_para = Paragraph::new(err_lines);
+        frame.render_widget(err_para, inner);
+        return;
+    }
+
+    // Handle empty state
+    if picker.sources.is_empty() {
+        let empty = Paragraph::new(vec![
+            Line::from("  No sources found."),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Press Esc to close",
+                Style::default().fg(theme.empty_state),
+            )),
+        ]);
+        frame.render_widget(empty, inner);
+        return;
+    }
+
+    // Draw the source list
+    let items: Vec<ListItem> = picker
+        .sources
+        .iter()
+        .enumerate()
+        .map(|(i, source)| {
+            let is_selected = i == picker.selected;
+            let is_checked = picker.checked.get(i).copied().unwrap_or(false);
+
+            let checkbox = if is_checked { "[x]" } else { "[ ]" };
+            let prefix = if is_selected { ">" } else { " " };
+
+            // Format: > [x] container_name  (status) [image]
+            let status_str = format!(" ({})", source.status);
+            let extra_str = source
+                .extra
+                .as_ref()
+                .map(|e| format!(" [{}]", e))
+                .unwrap_or_default();
+
+            let style = if is_selected {
+                Style::default().add_modifier(Modifier::BOLD)
+            } else if is_checked {
+                Style::default().fg(theme.filter_selected)
+            } else {
+                Style::default()
+            };
+
+            ListItem::new(Line::from(vec![
+                Span::raw(format!("{} {} ", prefix, checkbox)),
+                Span::styled(&source.name, style),
+                Span::styled(status_str, Style::default().fg(theme.empty_state)),
+                Span::styled(extra_str, Style::default().fg(theme.timestamp)),
+            ]))
+        })
+        .collect();
+
+    // Split inner area for list and help
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(2)])
+        .split(inner);
+
+    let list = List::new(items);
+    frame.render_widget(list, chunks[0]);
+
+    // Draw help text
+    let help = Paragraph::new(Line::from(vec![
+        Span::styled("j/k", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(":nav  "),
+        Span::styled("Space", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(":toggle  "),
+        Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(":add  "),
+        Span::styled("Esc", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(":cancel"),
+    ]))
+    .style(Style::default().fg(theme.status_help));
+    frame.render_widget(help, chunks[1]);
 }

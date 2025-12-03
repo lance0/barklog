@@ -5,7 +5,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 use tui_textarea::Input;
 
-use crate::app::{AppState, FocusedPanel, InputMode, SourceViewMode};
+use crate::app::{AppState, FocusedPanel, InputMode, PickerMode, SourceViewMode};
 use crate::config::MOUSE_SCROLL_LINES;
 
 /// Handle a mouse event
@@ -26,6 +26,7 @@ pub fn handle_mouse(state: &mut AppState, mouse: MouseEvent, _page_size: usize) 
 }
 
 /// Handle a key event and update app state accordingly
+/// Note: Picker input should be handled by main loop using handle_picker_input
 pub fn handle_key(state: &mut AppState, key: KeyEvent, page_size: usize) {
     // Help overlay takes priority
     if state.show_help {
@@ -37,6 +38,8 @@ pub fn handle_key(state: &mut AppState, key: KeyEvent, page_size: usize) {
         }
         return;
     }
+
+    // Note: Picker mode is handled separately by main loop
 
     match state.mode {
         InputMode::Normal => handle_normal_mode(state, key, page_size),
@@ -311,6 +314,16 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
             }
         }
 
+        // Open Docker picker
+        KeyCode::Char('D') => {
+            state.picker.open(PickerMode::Docker);
+        }
+
+        // Open K8s picker
+        KeyCode::Char('K') => {
+            state.picker.open(PickerMode::K8s);
+        }
+
         _ => {}
     }
 }
@@ -342,5 +355,80 @@ fn handle_source_select_mode(state: &mut AppState, key: KeyEvent) {
     // Future: handle up/down for source selection
     if key.code == KeyCode::Esc {
         state.mode = InputMode::Normal;
+    }
+}
+
+/// Picker action to be returned for main loop to handle
+#[derive(Debug)]
+pub enum PickerAction {
+    /// No action needed
+    None,
+    /// Close the picker
+    Close,
+    /// Add selected sources - returns list of source names and mode
+    AddSources(Vec<String>, PickerMode),
+}
+
+/// Handle picker mode input - returns action for main loop
+pub fn handle_picker_input(state: &mut AppState, key: KeyEvent) -> PickerAction {
+    match key.code {
+        // Navigation
+        KeyCode::Char('j') | KeyCode::Down => {
+            state.picker.down();
+            PickerAction::None
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            state.picker.up();
+            PickerAction::None
+        }
+
+        // Toggle selection
+        KeyCode::Char(' ') => {
+            state.picker.toggle_selected();
+            PickerAction::None
+        }
+
+        // Confirm selection - add sources
+        KeyCode::Enter => {
+            if state.picker.sources.is_empty() {
+                state.picker.close();
+                return PickerAction::Close;
+            }
+
+            let mode = state.picker.mode;
+
+            // Get selected sources
+            let sources: Vec<String> = if state.picker.has_selection() {
+                state
+                    .picker
+                    .get_checked_sources()
+                    .iter()
+                    .map(|s| s.name.clone())
+                    .collect()
+            } else {
+                // No checkboxes - just add the currently highlighted one
+                state
+                    .picker
+                    .get_selected_source()
+                    .map(|s| vec![s.name.clone()])
+                    .unwrap_or_default()
+            };
+
+            if sources.is_empty() {
+                state.picker.close();
+                return PickerAction::Close;
+            }
+
+            state.picker.close();
+            PickerAction::AddSources(sources, mode)
+        }
+
+        // Cancel
+        KeyCode::Esc | KeyCode::Char('q') => {
+            state.picker.close();
+            PickerAction::Close
+        }
+
+        _ => PickerAction::None,
     }
 }

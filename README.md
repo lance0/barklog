@@ -112,6 +112,20 @@ bark /var/log/app.log --docker nginx
 | `v` | Solo view (show only selected) |
 | `a` | Show all sources |
 
+### Runtime Source Discovery
+| Key | Action |
+|-----|--------|
+| `D` | Open Docker container picker |
+| `K` | Open Kubernetes pod picker |
+
+In the picker overlay:
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate list |
+| `Space` | Toggle checkbox (multi-select) |
+| `Enter` | Add selected sources |
+| `Esc` | Cancel |
+
 ## Configuration
 
 Bark reads configuration from `~/.config/bark/config.toml`:

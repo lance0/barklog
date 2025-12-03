@@ -8,6 +8,10 @@ All notable changes to Bark will be documented in this file.
 - **Multi-source support** - View logs from multiple containers/pods simultaneously
   - CLI: `bark --docker nginx --docker redis` or `bark --k8s frontend --k8s backend`
   - Mixed sources: `bark /var/log/app.log --docker nginx`
+- **Runtime source discovery** - Add containers/pods while running
+  - `D` - Open Docker container picker (lists running containers)
+  - `K` - Open Kubernetes pod picker (lists pods across namespaces)
+  - Multi-select support with checkbox toggles
 - **Source visibility controls** in Sources panel
   - `Space` - Toggle source visibility
   - `v` - Solo view (show only selected source)
