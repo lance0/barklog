@@ -2,7 +2,7 @@
 
 A fast, keyboard-driven TUI for tailing logs from files, Docker, Kubernetes, and SSH servers.
 
-[![CI](https://github.com/lance0/bark/actions/workflows/ci.yml/badge.svg)](https://github.com/lance0/bark/actions/workflows/ci.yml)
+[![CI](https://github.com/lance0/barklog/actions/workflows/ci.yml/badge.svg)](https://github.com/lance0/barklog/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/barklog.svg)](https://crates.io/crates/barklog)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 
@@ -43,11 +43,11 @@ barklog --k8s my-pod -n production
 cargo install barklog
 
 # From source
-git clone https://github.com/lance0/bark.git
+git clone https://github.com/lance0/barklog.git
 cd barklog && cargo build --release
 ```
 
-Pre-built binaries available at [GitHub Releases](https://github.com/lance0/bark/releases).
+Pre-built binaries available at [GitHub Releases](https://github.com/lance0/barklog/releases).
 
 ## Usage
 

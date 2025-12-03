@@ -1,6 +1,11 @@
 # Changelog
 
-All notable changes to Bark will be documented in this file.
+All notable changes to barklog will be documented in this file.
+
+## [1.1.1] - 2025-12-03
+
+### Fixed
+- Updated repository URLs after GitHub repo rename to `lance0/barklog`
 
 ## [1.1.0] - 2025-12-03
 

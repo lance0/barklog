@@ -384,9 +384,9 @@ fn print_help() {
     println!("    BARK_LINE_WRAP      Enable line wrapping (1/true or 0/false)");
     println!();
     println!("CONFIG:");
-    println!("    ~/.config/bark/config.toml");
+    println!("    ~/.config/barklog/config.toml");
     println!();
-    println!("For more information, see: https://github.com/lance0/bark");
+    println!("For more information, see: https://github.com/lance0/barklog");
 }
 
 /// Target frame rate for UI updates (~60fps)
