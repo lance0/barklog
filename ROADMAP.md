@@ -66,8 +66,9 @@
 
 ## Future Ideas
 
+- [ ] Docker multi-container support (`--docker-all` to auto-discover running containers)
 - [ ] Multiple panes (split view)
-- [ ] Multiple source switching at runtime
+- [ ] Multiple source switching at runtime (Tab/s to cycle sources)
 - [ ] Kubernetes pod selector UI
 - [ ] Log aggregation from multiple sources
 - [ ] Log correlation/linking between sources

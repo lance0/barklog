@@ -36,8 +36,24 @@ impl LogSource for DockerSource {
 
             match result {
                 Ok(mut child) => {
-                    // Docker logs outputs to both stdout and stderr
-                    // For simplicity, we'll merge them by reading stdout first
+                    let tx_stderr = tx.clone();
+
+                    // Spawn task to read stderr
+                    let stderr_handle = if let Some(stderr) = child.stderr.take() {
+                        Some(tokio::spawn(async move {
+                            let reader = BufReader::new(stderr);
+                            let mut lines = reader.lines();
+                            while let Ok(Some(line)) = lines.next_line().await {
+                                if tx_stderr.send(LogEvent::Line(LogLine::new(line))).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }))
+                    } else {
+                        None
+                    };
+
+                    // Read stdout in main task
                     if let Some(stdout) = child.stdout.take() {
                         let reader = BufReader::new(stdout);
                         let mut lines = reader.lines();
@@ -47,6 +63,11 @@ impl LogSource for DockerSource {
                                 break;
                             }
                         }
+                    }
+
+                    // Wait for stderr task
+                    if let Some(handle) = stderr_handle {
+                        let _ = handle.await;
                     }
 
                     match child.wait().await {

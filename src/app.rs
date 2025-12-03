@@ -240,6 +240,8 @@ pub struct AppState<'a> {
     pub bookmarks: Vec<usize>,
     /// Active color theme
     pub theme: Theme,
+    /// Last known viewport height (for auto-scroll calculations)
+    pub viewport_height: usize,
 }
 
 impl<'a> AppState<'a> {
@@ -278,6 +280,7 @@ impl<'a> AppState<'a> {
             json_pretty: false,
             bookmarks: Vec::new(),
             theme: config.get_theme(),
+            viewport_height: 20, // Default, updated on first render
         }
     }
 
@@ -578,8 +581,9 @@ impl<'a> AppState<'a> {
         }
 
         // Auto-scroll if stick_to_bottom is enabled
+        // Scroll so the last line appears at the BOTTOM of the viewport
         if self.stick_to_bottom && !self.filtered_indices.is_empty() {
-            self.scroll = self.filtered_indices.len().saturating_sub(1);
+            self.scroll = self.filtered_indices.len().saturating_sub(self.viewport_height);
         }
     }
 
@@ -793,6 +797,9 @@ impl<'a> AppState<'a> {
 
     /// Get visible lines for rendering
     pub fn visible_lines(&mut self, height: usize) -> Vec<(usize, &mut LogLine)> {
+        // Store viewport height for auto-scroll calculations
+        self.viewport_height = height;
+
         if self.filtered_indices.is_empty() {
             return Vec::new();
         }
