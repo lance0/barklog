@@ -65,16 +65,16 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
+    // Load config first (needed for SSH settings)
+    let config = Config::from_env();
+
     // Parse all sources from command line
-    let parsed_sources = parse_sources(&args)?;
+    let parsed_sources = parse_sources(&args, &config)?;
 
     if parsed_sources.is_empty() {
         eprintln!("No valid sources specified. Run 'bark --help' for usage.");
         std::process::exit(1);
     }
-
-    // Load config
-    let config = Config::from_env();
 
     // Extract source types for AppState
     let source_types: Vec<LogSourceType> = parsed_sources
@@ -124,7 +124,7 @@ async fn main() -> Result<()> {
 }
 
 /// Parse command line arguments into sources
-fn parse_sources(args: &[String]) -> Result<Vec<ParsedSource>> {
+fn parse_sources(args: &[String], config: &Config) -> Result<Vec<ParsedSource>> {
     let mut sources: Vec<ParsedSource> = Vec::new();
     let mut i = 1;
 
@@ -135,6 +135,12 @@ fn parse_sources(args: &[String]) -> Result<Vec<ParsedSource>> {
                     anyhow::bail!("--docker requires a container name");
                 }
                 let container = args[i + 1].clone();
+
+                // Validate container name to prevent option injection
+                if let Err(e) = sources::docker::validate_container_name(&container) {
+                    anyhow::bail!("{}", e);
+                }
+
                 sources.push(ParsedSource {
                     source_type: LogSourceType::Docker {
                         container: container.clone(),
@@ -148,6 +154,11 @@ fn parse_sources(args: &[String]) -> Result<Vec<ParsedSource>> {
                     anyhow::bail!("--k8s requires a pod name");
                 }
                 let pod = args[i + 1].clone();
+
+                // Validate pod name to prevent option injection
+                if let Err(e) = sources::k8s::validate_pod_name(&pod) {
+                    anyhow::bail!("{}", e);
+                }
                 let mut namespace: Option<String> = None;
                 let mut container: Option<String> = None;
                 i += 2;
@@ -183,12 +194,27 @@ fn parse_sources(args: &[String]) -> Result<Vec<ParsedSource>> {
                 }
                 let host = args[i + 1].clone();
                 let path = args[i + 2].clone();
+
+                // Validate SSH host to prevent command injection
+                if let Err(e) = sources::ssh::validate_ssh_host(&host) {
+                    anyhow::bail!("{}", e);
+                }
+
+                // Validate remote path
+                if let Err(e) = sources::ssh::validate_remote_path(&path) {
+                    anyhow::bail!("{}", e);
+                }
+
                 sources.push(ParsedSource {
                     source_type: LogSourceType::Ssh {
                         host: host.clone(),
                         path: path.clone(),
                     },
-                    source: Box::new(sources::ssh::SshSource::new(host, path)),
+                    source: Box::new(sources::ssh::SshSource::with_host_key_checking(
+                        host,
+                        path,
+                        config.ssh_host_key_checking.clone(),
+                    )),
                 });
                 i += 3;
             }
@@ -277,20 +303,56 @@ async fn run_event_loop<'a>(
     event_rx: &mut tokio::sync::mpsc::Receiver<SourcedLogEvent>,
     source_manager: &mut SourceManager,
 ) -> Result<()> {
+    // Track pending discovery task to avoid blocking UI
+    let mut discovery_rx: Option<
+        tokio::sync::oneshot::Receiver<anyhow::Result<Vec<discovery::DiscoveredSource>>>,
+    > = None;
+
     loop {
         // Check filter debounce before drawing
         state.check_filter_debounce();
 
-        // Check if picker needs to trigger discovery
-        if state.picker.visible && state.picker.loading {
-            let result = match state.picker.mode {
-                PickerMode::Docker => discover_docker_containers(),
-                PickerMode::K8s => discover_k8s_pods(None),
-            };
+        // Clear pending discovery if picker was closed
+        if !state.picker.visible && discovery_rx.is_some() {
+            discovery_rx = None;
+        }
 
-            match result {
-                Ok(sources) => state.picker.set_sources(sources),
-                Err(e) => state.picker.set_error(e.to_string()),
+        // Check if picker needs to trigger discovery (non-blocking)
+        if state.picker.visible && state.picker.loading && discovery_rx.is_none() {
+            let mode = state.picker.mode;
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            discovery_rx = Some(rx);
+
+            // Spawn blocking discovery in background
+            tokio::spawn(async move {
+                let result = tokio::task::spawn_blocking(move || match mode {
+                    PickerMode::Docker => discover_docker_containers(),
+                    PickerMode::K8s => discover_k8s_pods(None),
+                })
+                .await
+                .unwrap_or_else(|e| Err(anyhow::anyhow!("Discovery task panicked: {}", e)));
+                let _ = tx.send(result);
+            });
+        }
+
+        // Check for discovery result (non-blocking)
+        if let Some(ref mut rx) = discovery_rx {
+            match rx.try_recv() {
+                Ok(result) => {
+                    match result {
+                        Ok(sources) => state.picker.set_sources(sources),
+                        Err(e) => state.picker.set_error(e.to_string()),
+                    }
+                    discovery_rx = None;
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    // Still waiting, keep the receiver
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    // Sender dropped without sending - shouldn't happen
+                    state.picker.set_error("Discovery task failed".to_string());
+                    discovery_rx = None;
+                }
             }
         }
 
@@ -315,26 +377,30 @@ async fn run_event_loop<'a>(
                                 // Handle picker mode separately
                                 if state.picker.visible {
                                     let action = handle_picker_input(state, key);
-                                    if let PickerAction::AddSources(names, mode) = action {
+                                    if let PickerAction::AddSources(selected_sources, mode) = action {
                                         // Add the selected sources
-                                        let count = names.len();
-                                        for name in names {
+                                        let count = selected_sources.len();
+                                        for selected in selected_sources {
                                             let source_id = state.sources.len();
                                             let (source_type, source): (LogSourceType, Box<dyn LogSource>) = match mode {
                                                 PickerMode::Docker => {
                                                     (
-                                                        LogSourceType::Docker { container: name.clone() },
-                                                        Box::new(sources::docker::DockerSource::new(name)),
+                                                        LogSourceType::Docker { container: selected.name.clone() },
+                                                        Box::new(sources::docker::DockerSource::new(selected.name)),
                                                     )
                                                 }
                                                 PickerMode::K8s => {
                                                     (
                                                         LogSourceType::K8s {
-                                                            pod: name.clone(),
-                                                            namespace: None,
+                                                            pod: selected.name.clone(),
+                                                            namespace: selected.namespace.clone(),
                                                             container: None,
                                                         },
-                                                        Box::new(sources::k8s::K8sSource::new(name, None, None)),
+                                                        Box::new(sources::k8s::K8sSource::new(
+                                                            selected.name,
+                                                            selected.namespace,
+                                                            None,
+                                                        )),
                                                     )
                                                 }
                                             };

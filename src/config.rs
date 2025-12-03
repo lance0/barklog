@@ -39,6 +39,9 @@ pub struct Config {
     pub export_dir: String,
     /// Theme name: "default", "kawaii", "cyber", "dracula", "monochrome"
     pub theme: String,
+    /// SSH StrictHostKeyChecking mode: "yes" (default, strict), "accept-new", or "no"
+    /// WARNING: "accept-new" and "no" are insecure and vulnerable to MITM attacks
+    pub ssh_host_key_checking: String,
 }
 
 impl Default for Config {
@@ -50,6 +53,7 @@ impl Default for Config {
             show_side_panel: true,
             export_dir: "/tmp".to_string(),
             theme: "default".to_string(),
+            ssh_host_key_checking: "yes".to_string(),
         }
     }
 }
@@ -96,6 +100,18 @@ impl Config {
         }
         if let Ok(val) = std::env::var("BARK_THEME") {
             config.theme = val;
+        }
+        if let Ok(val) = std::env::var("BARK_SSH_HOST_KEY_CHECKING") {
+            // Validate the value
+            let val_lower = val.to_lowercase();
+            if val_lower == "yes" || val_lower == "accept-new" || val_lower == "no" {
+                config.ssh_host_key_checking = val_lower;
+            } else {
+                eprintln!(
+                    "Warning: Invalid BARK_SSH_HOST_KEY_CHECKING='{}'. Use 'yes', 'accept-new', or 'no'. Defaulting to 'yes'.",
+                    val
+                );
+            }
         }
 
         config
@@ -213,5 +229,21 @@ mod tests {
         // Defaults for unspecified fields
         assert!(config.level_colors);
         assert_eq!(config.theme, "default");
+    }
+
+    #[test]
+    fn test_ssh_host_key_checking_default() {
+        let config = Config::default();
+        // Security: Default should be "yes" (strict) to prevent MITM attacks
+        assert_eq!(config.ssh_host_key_checking, "yes");
+    }
+
+    #[test]
+    fn test_ssh_host_key_checking_from_toml() {
+        let toml_str = r#"
+            ssh_host_key_checking = "accept-new"
+        "#;
+        let config: Config = toml::from_str(toml_str).expect("deserialization should work");
+        assert_eq!(config.ssh_host_key_checking, "accept-new");
     }
 }

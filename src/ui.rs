@@ -809,6 +809,7 @@ fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
         Line::from("  Esc          Clear filter"),
         Line::from(""),
         Line::from("Display:"),
+        Line::from("  p            Pause/resume auto-scroll"),
         Line::from("  w            Toggle line wrapping"),
         Line::from("  c            Toggle level colors"),
         Line::from("  t            Toggle relative time"),

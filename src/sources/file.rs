@@ -38,9 +38,24 @@ impl LogSource for FileSource {
                         let reader = BufReader::new(stdout);
                         let mut lines = reader.lines();
 
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            if tx.send(LogEvent::Line(LogLine::new(line))).await.is_err() {
-                                break;
+                        loop {
+                            match lines.next_line().await {
+                                Ok(Some(line)) => {
+                                    if tx.send(LogEvent::Line(LogLine::new(line))).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                Ok(None) => {
+                                    // EOF - process exited
+                                    break;
+                                }
+                                Err(e) => {
+                                    // Report read error (e.g., invalid UTF-8) and continue
+                                    let _ = tx
+                                        .send(LogEvent::Error(format!("Read error: {}", e)))
+                                        .await;
+                                    // Continue reading - don't abort on single bad line
+                                }
                             }
                         }
                     }

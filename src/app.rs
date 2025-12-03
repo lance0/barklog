@@ -7,7 +7,7 @@
 //! - UI mode and panel focus
 
 use crate::config::{Config, FILTER_DEBOUNCE_MS};
-use crate::discovery::{DiscoveredSource, SourceType};
+use crate::discovery::DiscoveredSource;
 use crate::filter::{ActiveFilter, MatchRange, SavedFilter};
 use crate::sources::LogSourceType;
 use crate::theme::Theme;
@@ -320,19 +320,6 @@ impl PickerState {
         }
     }
 
-    /// Convert a discovered source to LogSourceType
-    pub fn to_log_source_type(source: &DiscoveredSource) -> LogSourceType {
-        match source.source_type {
-            SourceType::Docker => LogSourceType::Docker {
-                container: source.name.clone(),
-            },
-            SourceType::K8s => LogSourceType::K8s {
-                pod: source.name.clone(),
-                namespace: None, // Could be enhanced to include namespace
-                container: None,
-            },
-        }
-    }
 }
 
 /// Main application state
@@ -733,8 +720,33 @@ impl<'a> AppState<'a> {
         // If buffer is full, remove oldest line
         if self.lines.len() >= self.max_lines {
             self.lines.pop_front();
-            // Recompute filtered indices since indices shifted
-            self.recompute_filter();
+
+            // Adjust bookmark indices since all indices shifted by 1
+            // Remove bookmarks pointing to the evicted line (index 0)
+            self.bookmarks.retain_mut(|idx| {
+                if *idx == 0 {
+                    return false;
+                }
+                *idx -= 1;
+                true
+            });
+
+            // Incrementally adjust filtered indices instead of full recompute
+            // This is O(m) where m = filtered lines, vs O(n) for full recompute
+            self.filtered_indices.retain_mut(|idx| {
+                if *idx == 0 {
+                    return false;
+                }
+                *idx -= 1;
+                true
+            });
+
+            // Adjust scroll if it's now out of bounds
+            if !self.filtered_indices.is_empty() {
+                self.scroll = self.scroll.min(self.filtered_indices.len() - 1);
+            } else {
+                self.scroll = 0;
+            }
         }
 
         let line_index = self.lines.len();
@@ -982,31 +994,35 @@ impl<'a> AppState<'a> {
         ));
     }
 
-    /// Get visible lines for rendering
-    pub fn visible_lines(&mut self, height: usize) -> Vec<(usize, &mut LogLine)> {
-        // Store viewport height for auto-scroll calculations
+    /// Get visible lines for rendering (immutable references for safety)
+    pub fn visible_lines(&mut self, height: usize) -> Vec<(usize, &LogLine)> {
+        // Update viewport height and recalculate scroll if stick_to_bottom is enabled
+        // This fixes the initial render where viewport_height was default (20)
+        let height_changed = self.viewport_height != height;
         self.viewport_height = height;
 
         if self.filtered_indices.is_empty() {
             return Vec::new();
         }
 
+        // Recalculate scroll position if viewport height changed and we're sticking to bottom
+        if height_changed && self.stick_to_bottom {
+            self.scroll = self
+                .filtered_indices
+                .len()
+                .saturating_sub(self.viewport_height);
+        }
+
         let start = self.scroll;
         let end = (start + height).min(self.filtered_indices.len());
 
-        // We need to collect indices first, then get mutable references
-        let indices: Vec<usize> = self.filtered_indices[start..end].to_vec();
-
-        // This is safe because we're only accessing each index once
-        let mut result = Vec::with_capacity(indices.len());
-        for (i, &line_idx) in indices.iter().enumerate() {
-            let line = &mut self.lines[line_idx];
-            result.push((start + i, unsafe {
-                // Safety: we know line_idx is valid and we only access each once
-                &mut *(line as *mut LogLine)
-            }));
-        }
-        result
+        self.filtered_indices[start..end]
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &line_idx)| {
+                self.lines.get(line_idx).map(|line| (start + i, line))
+            })
+            .collect()
     }
 
     /// Get total and visible line counts

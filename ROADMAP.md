@@ -64,7 +64,7 @@
 - [x] README troubleshooting section
 - [x] CI workflow fix (main → master branch)
 
-## Milestone 7: Multi-Source Support 🚧
+## Milestone 7: Multi-Source Support ✅
 
 - [x] Multiple sources via CLI (`--docker nginx --docker redis`)
 - [x] Source manager for merging multiple log streams
@@ -75,8 +75,28 @@
 - [x] Show all sources (a key)
 - [x] Source-colored prefixes in log view
 - [x] Per-theme source color palettes
-- [ ] Runtime container discovery (D for Docker, K for K8s)
-- [ ] Container/pod picker UI with multi-select
+- [x] Runtime container discovery (D for Docker, K for K8s)
+- [x] Container/pod picker UI with multi-select
+- [x] Non-blocking discovery (async with spawn_blocking)
+
+## Milestone 8: Security Hardening ✅
+
+- [x] SSH command injection prevention (hostname validation)
+- [x] SSH StrictHostKeyChecking default to "yes" (configurable)
+- [x] Option injection prevention (`--` separators in all commands)
+- [x] Input validation for container/pod names
+- [x] Remove unsafe code in visible_lines
+- [x] Source cleanup on shutdown (Drop impl)
+- [x] UTF-8 error handling in reader loops
+- [x] Bookmark index adjustment on buffer wrap
+- [x] Incremental filter optimization
+- [x] 70 unit tests including security validation
+
+## Milestone 9: UX Improvements 🚧
+
+- [x] Pause/resume auto-scroll (`p` key)
+- [ ] Fix auto-scroll on initial load
+- [ ] Improve high-volume log handling
 
 ## Future Ideas
 

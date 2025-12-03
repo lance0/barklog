@@ -19,12 +19,30 @@ All notable changes to Bark will be documented in this file.
 - **Source-colored log prefixes** - Each source gets a unique color in merged view
 - **Per-theme source color palettes** - All 5 themes have matching source colors
 - **SourceManager** for merging multiple async log streams
+- **Pause/resume auto-scroll** - `p` key to toggle following new logs
+- **SSH host key checking config** - `BARK_SSH_HOST_KEY_CHECKING` env var (default: strict)
 
 ### Changed
 - AppState now accepts multiple sources at initialization
 - Event loop handles multiplexed SourcedLogEvent from all sources
 - Sources panel shows `[x]/[ ]` visibility toggles
 - CLI help updated with multi-source examples
+- Non-blocking container/pod discovery (UI stays responsive)
+
+### Security
+- **Input validation** - Reject hostnames/container names starting with `-` to prevent option injection
+- **Command separators** - All spawned commands use `--` before user arguments
+- **SSH StrictHostKeyChecking** - Default changed to `yes` (strict) to prevent MITM attacks
+- **UTF-8 error handling** - Reader loops report errors instead of silently stopping
+- **Source cleanup on shutdown** - Spawned tasks properly terminated on exit
+- Removed unsafe code in visible_lines function
+- 70 unit tests covering security-critical validation functions
+
+### Fixed
+- Bookmark indices now adjust correctly when buffer wraps
+- K8s namespace preserved when selecting pods from picker
+- Auto-scroll position corrected on viewport resize
+- Incremental filter optimization (O(m) instead of O(n) on buffer wrap)
 
 ## [1.0.0] - 2025-12-02
 

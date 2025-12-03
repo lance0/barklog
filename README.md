@@ -95,6 +95,7 @@ bark /var/log/app.log --docker nginx
 ### Display
 | Key | Action |
 |-----|--------|
+| `p` | Pause/resume auto-scroll |
 | `w` | Toggle line wrapping |
 | `c` | Toggle level colors |
 | `t` | Toggle relative time |
@@ -160,11 +161,13 @@ Environment variables override config file settings:
 - `BARK_SIDE_PANEL` - Show side panel
 - `BARK_EXPORT_DIR` - Export directory
 - `BARK_THEME` - Color theme (default, kawaii, cyber, dracula, monochrome)
+- `BARK_SSH_HOST_KEY_CHECKING` - SSH host key verification: `yes` (default, strict), `accept-new`, or `no`
 
 ## Status Bar Indicators
 
 The status bar shows active modes:
-- `[F]` - Follow mode (auto-scroll)
+- `[F]` - Follow mode (auto-scroll enabled)
+- `[P]` - Paused (auto-scroll disabled, press `p` or `G` to resume)
 - `[.*]` - Regex filter mode
 - `[W]` - Line wrap enabled
 - `[C]` - Level colors enabled

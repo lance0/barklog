@@ -46,8 +46,17 @@ impl SourceManager {
 
     /// Shutdown all source streams
     #[allow(dead_code)]
-    pub fn shutdown(self) {
-        for handle in self.handles {
+    pub fn shutdown(&self) {
+        for handle in &self.handles {
+            handle.abort();
+        }
+    }
+}
+
+impl Drop for SourceManager {
+    fn drop(&mut self) {
+        // Abort all spawned tasks to ensure child processes are cleaned up
+        for handle in &self.handles {
             handle.abort();
         }
     }

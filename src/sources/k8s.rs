@@ -8,6 +8,20 @@ use crate::app::LogLine;
 use crate::config::{DEFAULT_CHANNEL_BUFFER, DEFAULT_TAIL_LINES};
 use async_trait::async_trait;
 
+/// Validate Kubernetes pod name to prevent option injection.
+pub fn validate_pod_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("Pod name cannot be empty".to_string());
+    }
+
+    // Reject names starting with '-' to prevent option injection
+    if name.starts_with('-') {
+        return Err("Invalid pod name: cannot start with '-'".to_string());
+    }
+
+    Ok(())
+}
+
 /// Kubernetes pod log source using kubectl
 pub struct K8sSource {
     /// Pod name (or name pattern)
@@ -47,11 +61,12 @@ impl LogSource for K8sSource {
                 cmd.arg("-n").arg(ns);
             }
 
-            cmd.arg(&pod);
-
-            if let Some(c) = container {
+            if let Some(c) = &container {
                 cmd.arg("-c").arg(c);
             }
+
+            // Add -- before pod name to prevent option injection
+            cmd.arg("--").arg(&pod);
 
             cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
@@ -112,5 +127,51 @@ impl LogSource for K8sSource {
             (None, Some(c)) => format!("k8s:{}/{}", self.pod, c),
             (None, None) => format!("k8s:{}", self.pod),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_pod_name_valid() {
+        assert!(validate_pod_name("my-pod").is_ok());
+        assert!(validate_pod_name("nginx").is_ok());
+        assert!(validate_pod_name("app-deployment-abc123").is_ok());
+        assert!(validate_pod_name("pod_name").is_ok());
+    }
+
+    #[test]
+    fn test_validate_pod_name_rejects_dash_prefix() {
+        // Prevent option injection to kubectl logs
+        assert!(validate_pod_name("-f").is_err());
+        assert!(validate_pod_name("--help").is_err());
+        assert!(validate_pod_name("-n").is_err());
+    }
+
+    #[test]
+    fn test_validate_pod_name_rejects_empty() {
+        assert!(validate_pod_name("").is_err());
+    }
+
+    #[test]
+    fn test_k8s_source_name_formatting() {
+        let source = K8sSource::new("my-pod".to_string(), None, None);
+        assert_eq!(source.name(), "k8s:my-pod");
+
+        let source = K8sSource::new(
+            "my-pod".to_string(),
+            Some("production".to_string()),
+            None,
+        );
+        assert_eq!(source.name(), "k8s:production/my-pod");
+
+        let source = K8sSource::new(
+            "my-pod".to_string(),
+            Some("prod".to_string()),
+            Some("nginx".to_string()),
+        );
+        assert_eq!(source.name(), "k8s:prod/my-pod/nginx");
     }
 }

@@ -6,6 +6,20 @@ use super::{LogEvent, LogSource};
 use crate::app::LogLine;
 use crate::config::{DEFAULT_CHANNEL_BUFFER, DEFAULT_TAIL_LINES};
 
+/// Validate Docker container name to prevent option injection.
+pub fn validate_container_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("Container name cannot be empty".to_string());
+    }
+
+    // Reject names starting with '-' to prevent option injection
+    if name.starts_with('-') {
+        return Err("Invalid container name: cannot start with '-'".to_string());
+    }
+
+    Ok(())
+}
+
 /// A log source that reads from a Docker container using docker logs -f
 pub struct DockerSource {
     container: String,
@@ -29,6 +43,7 @@ impl LogSource for DockerSource {
                 .arg("-f")
                 .arg("--tail")
                 .arg(DEFAULT_TAIL_LINES)
+                .arg("--") // Prevent option injection from container name
                 .arg(&container)
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
@@ -43,13 +58,24 @@ impl LogSource for DockerSource {
                         tokio::spawn(async move {
                             let reader = BufReader::new(stderr);
                             let mut lines = reader.lines();
-                            while let Ok(Some(line)) = lines.next_line().await {
-                                if tx_stderr
-                                    .send(LogEvent::Line(LogLine::new(line)))
-                                    .await
-                                    .is_err()
-                                {
-                                    break;
+                            loop {
+                                match lines.next_line().await {
+                                    Ok(Some(line)) => {
+                                        if tx_stderr
+                                            .send(LogEvent::Line(LogLine::new(line)))
+                                            .await
+                                            .is_err()
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    Ok(None) => break,
+                                    Err(e) => {
+                                        let _ = tx_stderr
+                                            .send(LogEvent::Error(format!("stderr read error: {}", e)))
+                                            .await;
+                                        // Continue reading
+                                    }
                                 }
                             }
                         })
@@ -60,9 +86,20 @@ impl LogSource for DockerSource {
                         let reader = BufReader::new(stdout);
                         let mut lines = reader.lines();
 
-                        while let Ok(Some(line)) = lines.next_line().await {
-                            if tx.send(LogEvent::Line(LogLine::new(line))).await.is_err() {
-                                break;
+                        loop {
+                            match lines.next_line().await {
+                                Ok(Some(line)) => {
+                                    if tx.send(LogEvent::Line(LogLine::new(line))).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                Ok(None) => break,
+                                Err(e) => {
+                                    let _ = tx
+                                        .send(LogEvent::Error(format!("stdout read error: {}", e)))
+                                        .await;
+                                    // Continue reading - don't abort on single bad line
+                                }
                             }
                         }
                     }
@@ -111,5 +148,32 @@ impl LogSource for DockerSource {
 
     fn name(&self) -> String {
         self.container.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_container_name_valid() {
+        assert!(validate_container_name("nginx").is_ok());
+        assert!(validate_container_name("my-container").is_ok());
+        assert!(validate_container_name("my_container").is_ok());
+        assert!(validate_container_name("container123").is_ok());
+        assert!(validate_container_name("my-app-v1.2.3").is_ok());
+    }
+
+    #[test]
+    fn test_validate_container_name_rejects_dash_prefix() {
+        // Prevent option injection to docker logs
+        assert!(validate_container_name("-f").is_err());
+        assert!(validate_container_name("--help").is_err());
+        assert!(validate_container_name("-v").is_err());
+    }
+
+    #[test]
+    fn test_validate_container_name_rejects_empty() {
+        assert!(validate_container_name("").is_err());
     }
 }

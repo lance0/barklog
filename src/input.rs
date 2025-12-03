@@ -261,6 +261,16 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
             state.toggle_json_pretty();
         }
 
+        // Toggle pause (stop following new logs)
+        KeyCode::Char('p') => {
+            state.stick_to_bottom = !state.stick_to_bottom;
+            state.status_message = Some(if state.stick_to_bottom {
+                "Following logs (auto-scroll ON)".to_string()
+            } else {
+                "PAUSED - press 'p' or 'G' to resume".to_string()
+            });
+        }
+
         // Export filtered lines to file
         KeyCode::Char('e') => {
             let path = state.default_export_path();
@@ -358,6 +368,13 @@ fn handle_source_select_mode(state: &mut AppState, key: KeyEvent) {
     }
 }
 
+/// Selected source info from picker
+#[derive(Debug, Clone)]
+pub struct SelectedSource {
+    pub name: String,
+    pub namespace: Option<String>,
+}
+
 /// Picker action to be returned for main loop to handle
 #[derive(Debug)]
 pub enum PickerAction {
@@ -365,8 +382,8 @@ pub enum PickerAction {
     None,
     /// Close the picker
     Close,
-    /// Add selected sources - returns list of source names and mode
-    AddSources(Vec<String>, PickerMode),
+    /// Add selected sources - returns list of sources with namespace info and mode
+    AddSources(Vec<SelectedSource>, PickerMode),
 }
 
 /// Handle picker mode input - returns action for main loop
@@ -397,20 +414,26 @@ pub fn handle_picker_input(state: &mut AppState, key: KeyEvent) -> PickerAction 
 
             let mode = state.picker.mode;
 
-            // Get selected sources
-            let sources: Vec<String> = if state.picker.has_selection() {
+            // Get selected sources with namespace info
+            let sources: Vec<SelectedSource> = if state.picker.has_selection() {
                 state
                     .picker
                     .get_checked_sources()
                     .iter()
-                    .map(|s| s.name.clone())
+                    .map(|s| SelectedSource {
+                        name: s.name.clone(),
+                        namespace: s.namespace.clone(),
+                    })
                     .collect()
             } else {
                 // No checkboxes - just add the currently highlighted one
                 state
                     .picker
                     .get_selected_source()
-                    .map(|s| vec![s.name.clone()])
+                    .map(|s| vec![SelectedSource {
+                        name: s.name.clone(),
+                        namespace: s.namespace.clone(),
+                    }])
                     .unwrap_or_default()
             };
 
