@@ -21,6 +21,31 @@ All notable changes to Bark will be documented in this file.
 - **SourceManager** for merging multiple async log streams
 - **Pause/resume auto-scroll** - `p` key to toggle following new logs
 - **SSH host key checking config** - `BARK_SSH_HOST_KEY_CHECKING` env var (default: strict)
+- **High-volume log handling** - Improved performance for fast log streams
+  - Batch processing: up to 500 lines processed per frame
+  - Throttled UI redraws at ~60fps to prevent overwhelming the terminal
+  - Lines/sec throughput indicator shows real-time log rate in status bar
+- **Settings page** - `S` key opens settings overlay
+  - Configure theme, level colors, line wrap, side panel visibility
+  - Changes auto-save to `~/.config/bark/config.toml`
+  - Navigate with `j`/`k`, toggle with `Space`, close with `Esc`
+- **6 new themes** (11 total):
+  - `matrix` - Green on black hacker style
+  - `nord` - Arctic, north-bluish colors
+  - `gruvbox` - Retro groove warm colors
+  - `catppuccin` - Soothing pastel (Mocha variant)
+  - `tokyo_night` - Dark theme inspired by Tokyo city lights
+  - `solarized` - Precision colors for readability
+- **Filter history** - `↑`/`↓` in filter mode to browse recent filters (keeps last 50)
+- **Copy to clipboard** - `y` yanks current line to clipboard (strips ANSI codes)
+- **Line numbers** - `#` toggles line number display in log view
+- **Split view** - View logs in multiple panes with independent filters
+  - `Ctrl+W, v` - Vertical split (side-by-side)
+  - `Ctrl+W, s` - Horizontal split (stacked)
+  - `Ctrl+W, q` - Close current pane
+  - `Ctrl+W, w` - Cycle to next pane
+  - `Ctrl+W, h/j/k/l` - Navigate between panes (vim-style)
+  - Each pane has independent: scroll position, filter, bookmarks, source visibility
 
 ### Changed
 - AppState now accepts multiple sources at initialization
@@ -80,7 +105,7 @@ All notable changes to Bark will be documented in this file.
 - **JSON log pretty-printing** - toggle with `J` to expand JSON logs
 - **Bookmarks** - mark lines with `m`, navigate with `[`/`]`
 - **Config file support** - `~/.config/bark/config.toml` for persistent settings
-- **Color themes** - 5 built-in themes: default, kawaii, cyber, dracula, monochrome
+- **Color themes** - 11 built-in themes: default, kawaii, cyber, dracula, monochrome, matrix, nord, gruvbox, catppuccin, tokyo_night, solarized
   - Set via `theme` config option or `BARK_THEME` environment variable
 
 ### Technical
@@ -115,4 +140,4 @@ Environment variables (override config file):
 - `BARK_LINE_WRAP` - Enable/disable line wrapping
 - `BARK_SIDE_PANEL` - Show/hide side panel
 - `BARK_EXPORT_DIR` - Directory for exported logs
-- `BARK_THEME` - Color theme (default, kawaii, cyber, dracula, monochrome)
+- `BARK_THEME` - Color theme (11 options: default, kawaii, cyber, dracula, monochrome, matrix, nord, gruvbox, catppuccin, tokyo_night, solarized)

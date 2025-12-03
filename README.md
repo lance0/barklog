@@ -19,8 +19,9 @@ A fast, keyboard-driven TUI for exploring logs from files, Docker containers, Ku
 - **JSON pretty-printing**: Expand single-line JSON logs for readability
 - **Timestamp parsing**: View relative times ("5s ago", "2m ago")
 - **Export**: Save filtered lines to a file
+- **Split view**: View logs in multiple panes with independent filters (vim-style keybinds)
 - **Configurable**: Persistent settings via config file or environment
-- **Themes**: Built-in color themes (default, kawaii, cyber, dracula, monochrome)
+- **Themes**: Built-in color themes (default, kawaii, cyber, dracula, monochrome, and 6 more)
 
 ## Installation
 
@@ -86,6 +87,7 @@ bark /var/log/app.log --docker nginx
 | Key | Action |
 |-----|--------|
 | `/` | Start filter input |
+| `↑` / `↓` | Browse filter history |
 | `r` | Toggle regex mode |
 | `Enter` | Apply filter |
 | `Esc` | Clear filter / cancel |
@@ -97,11 +99,14 @@ bark /var/log/app.log --docker nginx
 |-----|--------|
 | `p` | Pause/resume auto-scroll |
 | `w` | Toggle line wrapping |
+| `#` | Toggle line numbers |
 | `c` | Toggle level colors |
 | `t` | Toggle relative time |
 | `J` | Toggle JSON pretty-print |
 | `b` | Toggle side panel |
 | `Tab` | Cycle panel focus |
+| `y` | Yank (copy) line to clipboard |
+| `S` | Open settings |
 | `?` | Show help |
 | `q` | Quit |
 
@@ -127,6 +132,17 @@ In the picker overlay:
 | `Enter` | Add selected sources |
 | `Esc` | Cancel |
 
+### Split View (Ctrl+W prefix)
+| Key | Action |
+|-----|--------|
+| `Ctrl+W, v` | Vertical split (side-by-side) |
+| `Ctrl+W, s` | Horizontal split (stacked) |
+| `Ctrl+W, q` | Close current pane |
+| `Ctrl+W, w` | Cycle to next pane |
+| `Ctrl+W, h/j/k/l` | Navigate between panes |
+
+Each pane has independent scroll position, filter, bookmarks, and source visibility.
+
 ## Configuration
 
 Bark reads configuration from `~/.config/bark/config.toml`:
@@ -147,7 +163,7 @@ show_side_panel = true
 # Directory for exported logs
 export_dir = "/tmp"
 
-# Color theme: default, kawaii, cyber, dracula, monochrome
+# Color theme (11 options, see below)
 theme = "default"
 ```
 
@@ -160,8 +176,28 @@ Environment variables override config file settings:
 - `BARK_LINE_WRAP` - Enable line wrapping
 - `BARK_SIDE_PANEL` - Show side panel
 - `BARK_EXPORT_DIR` - Export directory
-- `BARK_THEME` - Color theme (default, kawaii, cyber, dracula, monochrome)
+- `BARK_THEME` - Color theme (see Themes section below)
 - `BARK_SSH_HOST_KEY_CHECKING` - SSH host key verification: `yes` (default, strict), `accept-new`, or `no`
+
+## Themes
+
+Bark includes 11 built-in color themes:
+
+| Theme | Description |
+|-------|-------------|
+| `default` | Classic terminal colors |
+| `kawaii` | Cute pastel colors |
+| `cyber` | Neon futuristic colors |
+| `dracula` | Popular dark theme |
+| `monochrome` | Grayscale only |
+| `matrix` | Green on black hacker style |
+| `nord` | Arctic, north-bluish colors |
+| `gruvbox` | Retro groove warm colors |
+| `catppuccin` | Soothing pastel (Mocha variant) |
+| `tokyo_night` | Dark theme inspired by Tokyo city lights |
+| `solarized` | Precision colors for readability |
+
+Cycle through themes with `S` (Settings) then `Space` on the Theme option.
 
 ## Status Bar Indicators
 
@@ -174,6 +210,7 @@ The status bar shows active modes:
 - `[T]` - Relative time enabled
 - `[J]` - JSON pretty-print enabled
 - `[+N]` - Horizontal scroll offset
+- `[N/s]` - Lines per second throughput (shown during active logging)
 
 ## Requirements
 

@@ -3,10 +3,18 @@
 //! Maps key events to application actions based on current input mode.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use regex::Regex;
 use tui_textarea::Input;
 
 use crate::app::{AppState, FocusedPanel, InputMode, PickerMode, SourceViewMode};
 use crate::config::MOUSE_SCROLL_LINES;
+
+/// Strip ANSI escape codes from a string
+fn strip_ansi_codes(s: &str) -> String {
+    // Regex to match ANSI escape sequences
+    let ansi_regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+    ansi_regex.replace_all(s, "").to_string()
+}
 
 /// Handle a mouse event
 pub fn handle_mouse(state: &mut AppState, mouse: MouseEvent, _page_size: usize) {
@@ -39,12 +47,19 @@ pub fn handle_key(state: &mut AppState, key: KeyEvent, page_size: usize) {
         return;
     }
 
+    // Settings overlay
+    if state.settings.visible {
+        handle_settings_input(state, key);
+        return;
+    }
+
     // Note: Picker mode is handled separately by main loop
 
     match state.mode {
         InputMode::Normal => handle_normal_mode(state, key, page_size),
         InputMode::FilterEditing => handle_filter_mode(state, key),
         InputMode::SourceSelect => handle_source_select_mode(state, key),
+        InputMode::SplitCommand => handle_split_command(state, key),
     }
 }
 
@@ -136,10 +151,10 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
         KeyCode::Char(' ') => {
             if state.focused_panel == FocusedPanel::Sources {
                 let idx = state.current_source_idx;
-                if let Some(visible) = state.visible_sources.get_mut(idx) {
+                if let Some(visible) = state.panes[state.active_pane].visible_sources.get_mut(idx) {
                     *visible = !*visible;
                 }
-                let is_visible = state.visible_sources.get(idx).copied().unwrap_or(true);
+                let is_visible = state.panes[state.active_pane].visible_sources.get(idx).copied().unwrap_or(true);
                 state.recompute_filter();
                 let source_name = state.sources[idx].name();
                 state.status_message = Some(format!(
@@ -153,14 +168,14 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
         // 'v' - solo view (show only selected source) or toggle back to all
         KeyCode::Char('v') => {
             if state.focused_panel == FocusedPanel::Sources {
-                state.view_mode = match state.view_mode {
+                state.panes[state.active_pane].view_mode = match state.panes[state.active_pane].view_mode {
                     SourceViewMode::SingleSource(id) if id == state.current_source_idx => {
                         SourceViewMode::AllMerged
                     }
                     _ => SourceViewMode::SingleSource(state.current_source_idx),
                 };
                 state.recompute_filter();
-                state.status_message = Some(match state.view_mode {
+                state.status_message = Some(match state.panes[state.active_pane].view_mode {
                     SourceViewMode::AllMerged => "Showing all sources".to_string(),
                     SourceViewMode::SingleSource(id) => {
                         format!("Solo: {}", state.sources[id].name())
@@ -172,10 +187,10 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
         // 'a' - show all sources
         KeyCode::Char('a') => {
             if state.focused_panel == FocusedPanel::Sources {
-                for v in state.visible_sources.iter_mut() {
+                for v in state.panes[state.active_pane].visible_sources.iter_mut() {
                     *v = true;
                 }
-                state.view_mode = SourceViewMode::AllMerged;
+                state.panes[state.active_pane].view_mode = SourceViewMode::AllMerged;
                 state.recompute_filter();
                 state.status_message = Some("All sources visible".to_string());
             }
@@ -199,8 +214,8 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
             state.mode = InputMode::FilterEditing;
             state.focused_panel = FocusedPanel::LogView;
             // Clear textarea for new filter input
-            state.filter_textarea.select_all();
-            state.filter_textarea.cut();
+            state.panes[state.active_pane].filter_textarea.select_all();
+            state.panes[state.active_pane].filter_textarea.cut();
         }
 
         // Toggle regex mode
@@ -210,7 +225,7 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
 
         // Next match
         KeyCode::Char('n') => {
-            if state.active_filter.is_some() {
+            if state.panes[state.active_pane].active_filter.is_some() {
                 state.next_match();
             } else {
                 state.status_message = Some("No active filter (use / to filter)".to_string());
@@ -219,7 +234,7 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
 
         // Previous match
         KeyCode::Char('N') => {
-            if state.active_filter.is_some() {
+            if state.panes[state.active_pane].active_filter.is_some() {
                 state.prev_match();
             } else {
                 state.status_message = Some("No active filter (use / to filter)".to_string());
@@ -241,8 +256,8 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
             state.prev_bookmark();
         }
 
-        // Toggle line wrap
-        KeyCode::Char('w') => {
+        // Toggle line wrap (without modifier)
+        KeyCode::Char('w') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.toggle_line_wrap();
         }
 
@@ -263,8 +278,8 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
 
         // Toggle pause (stop following new logs)
         KeyCode::Char('p') => {
-            state.stick_to_bottom = !state.stick_to_bottom;
-            state.status_message = Some(if state.stick_to_bottom {
+            state.panes[state.active_pane].stick_to_bottom = !state.panes[state.active_pane].stick_to_bottom;
+            state.status_message = Some(if state.panes[state.active_pane].stick_to_bottom {
                 "Following logs (auto-scroll ON)".to_string()
             } else {
                 "PAUSED - press 'p' or 'G' to resume".to_string()
@@ -286,7 +301,7 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
 
         // Save current filter
         KeyCode::Char('s') => {
-            if state.active_filter.is_some() {
+            if state.panes[state.active_pane].active_filter.is_some() {
                 // Simple auto-naming based on pattern
                 let pattern = state.filter_input();
                 let name = if pattern.len() > 10 {
@@ -315,10 +330,10 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
 
         // Clear filter
         KeyCode::Esc => {
-            if state.active_filter.is_some() {
-                state.active_filter = None;
-                state.filter_textarea.select_all();
-                state.filter_textarea.cut();
+            if state.panes[state.active_pane].active_filter.is_some() {
+                state.panes[state.active_pane].active_filter = None;
+                state.panes[state.active_pane].filter_textarea.select_all();
+                state.panes[state.active_pane].filter_textarea.cut();
                 state.recompute_filter();
                 state.status_message = Some("Filter cleared".to_string());
             }
@@ -332,6 +347,46 @@ fn handle_normal_mode(state: &mut AppState, key: KeyEvent, page_size: usize) {
         // Open K8s picker
         KeyCode::Char('K') => {
             state.picker.open(PickerMode::K8s);
+        }
+
+        // Open settings
+        KeyCode::Char('S') => {
+            state.settings.open();
+        }
+
+        // Toggle line numbers
+        KeyCode::Char('#') => {
+            state.toggle_line_numbers();
+        }
+
+        // Split view commands (Ctrl+W prefix)
+        KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            state.mode = InputMode::SplitCommand;
+        }
+
+        // Yank (copy) current line to clipboard
+        KeyCode::Char('y') => {
+            if let Some(line) = state.get_current_line_text() {
+                match arboard::Clipboard::new() {
+                    Ok(mut clipboard) => {
+                        // Strip ANSI codes for clipboard
+                        let clean_line = strip_ansi_codes(&line);
+                        match clipboard.set_text(clean_line) {
+                            Ok(()) => {
+                                state.status_message = Some("Yanked line to clipboard".to_string());
+                            }
+                            Err(e) => {
+                                state.status_message = Some(format!("Clipboard error: {}", e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        state.status_message = Some(format!("Clipboard unavailable: {}", e));
+                    }
+                }
+            } else {
+                state.status_message = Some("No line to yank".to_string());
+            }
         }
 
         _ => {}
@@ -350,12 +405,33 @@ fn handle_filter_mode(state: &mut AppState, key: KeyEvent) {
         KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.toggle_regex_mode();
         }
+        // Navigate filter history with Up/Down
+        KeyCode::Up => {
+            if !state.filter_history_up() {
+                // If no history, let textarea handle it
+                let input = Input::from(key);
+                if state.panes[state.active_pane].filter_textarea.input(input) {
+                    state.filter_changed();
+                }
+            }
+        }
+        KeyCode::Down => {
+            if !state.filter_history_down() {
+                // If not browsing history, let textarea handle it
+                let input = Input::from(key);
+                if state.panes[state.active_pane].filter_textarea.input(input) {
+                    state.filter_changed();
+                }
+            }
+        }
         _ => {
             // Forward all other keys to the textarea
             let input = Input::from(key);
-            if state.filter_textarea.input(input) {
+            if state.panes[state.active_pane].filter_textarea.input(input) {
                 // Text changed, mark for debounce
                 state.filter_changed();
+                // Reset history browsing when user types
+                state.panes[state.active_pane].filter_history_idx = None;
             }
         }
     }
@@ -365,6 +441,78 @@ fn handle_source_select_mode(state: &mut AppState, key: KeyEvent) {
     // Future: handle up/down for source selection
     if key.code == KeyCode::Esc {
         state.mode = InputMode::Normal;
+    }
+}
+
+/// Handle split command mode (after Ctrl+W)
+fn handle_split_command(state: &mut AppState, key: KeyEvent) {
+    // Reset to normal mode after any key
+    state.mode = InputMode::Normal;
+
+    match key.code {
+        // Vertical split (side-by-side)
+        KeyCode::Char('v') => {
+            state.split_vertical();
+        }
+        // Horizontal split (stacked)
+        KeyCode::Char('s') => {
+            state.split_horizontal();
+        }
+        // Close current pane
+        KeyCode::Char('q') => {
+            state.close_pane();
+        }
+        // Cycle to next pane
+        KeyCode::Char('w') => {
+            state.cycle_pane();
+        }
+        // Navigate to left pane (for vertical split)
+        KeyCode::Char('h') => {
+            state.focus_pane_left();
+        }
+        // Navigate to right pane (for vertical split)
+        KeyCode::Char('l') => {
+            state.focus_pane_right();
+        }
+        // Navigate to up pane (for horizontal split)
+        KeyCode::Char('k') => {
+            state.focus_pane_up();
+        }
+        // Navigate to down pane (for horizontal split)
+        KeyCode::Char('j') => {
+            state.focus_pane_down();
+        }
+        // Escape cancels split command
+        KeyCode::Esc => {}
+        _ => {
+            state.status_message = Some("Split: v=vertical s=horizontal q=close w=cycle".to_string());
+        }
+    }
+}
+
+/// Handle input when settings overlay is open
+fn handle_settings_input(state: &mut AppState, key: KeyEvent) {
+    match key.code {
+        // Navigation
+        KeyCode::Char('j') | KeyCode::Down => {
+            state.settings.down();
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            state.settings.up();
+        }
+
+        // Toggle selected setting
+        KeyCode::Char(' ') | KeyCode::Enter => {
+            let selected = state.settings.selected;
+            state.toggle_setting(selected);
+        }
+
+        // Close settings
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('S') => {
+            state.settings.close();
+        }
+
+        _ => {}
     }
 }
 

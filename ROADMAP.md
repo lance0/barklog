@@ -50,7 +50,7 @@
 ## Milestone 6: Themes ✅
 
 - [x] Themeable color system
-- [x] Built-in themes: default, kawaii, cyber, dracula, monochrome
+- [x] Built-in themes (11 total): default, kawaii, cyber, dracula, monochrome, matrix, nord, gruvbox, catppuccin, tokyo_night, solarized
 - [x] Theme selection via config file and environment variable
 
 ## Release Prep ✅
@@ -92,17 +92,45 @@
 - [x] Incremental filter optimization
 - [x] 70 unit tests including security validation
 
-## Milestone 9: UX Improvements 🚧
+## Milestone 9: UX Improvements ✅
 
 - [x] Pause/resume auto-scroll (`p` key)
-- [ ] Fix auto-scroll on initial load
-- [ ] Improve high-volume log handling
+- [x] Fix auto-scroll on initial load
+- [x] High-volume log handling
+  - [x] Batch log line processing (up to 500 lines per frame)
+  - [x] Throttled UI redraws (~60fps)
+  - [x] Lines/sec throughput indicator in status bar
+
+## Milestone 10: Settings Page ✅
+
+- [x] Settings overlay (`S` key)
+- [x] Theme selection (cycles through 11 themes)
+- [x] Toggle level colors, line wrap, side panel
+- [x] Auto-save to config file on change
+
+## Milestone 11: UX Quick Wins ✅
+
+- [x] Filter history (`↑`/`↓` in filter mode to browse last 50 filters)
+- [x] Copy to clipboard (`y` yanks current line)
+- [x] Line numbers toggle (`#` key)
+
+## Milestone 12: Split View ✅
+
+- [x] Split panes (up to 2 panes)
+- [x] Vertical split (`Ctrl+W, v` - side-by-side)
+- [x] Horizontal split (`Ctrl+W, s` - stacked)
+- [x] Close pane (`Ctrl+W, q`)
+- [x] Cycle panes (`Ctrl+W, w`)
+- [x] Navigate panes (`Ctrl+W, h/j/k/l` - vim-style)
+- [x] Independent scroll position per pane
+- [x] Independent filter per pane
+- [x] Independent bookmarks per pane
+- [x] Independent source visibility per pane
+- [x] Active pane indicator (highlighted border)
+- [x] Pane indicator in status bar (`[1/2]`, `[2/2]`)
 
 ## Future Ideas
-
-- [ ] Multiple panes (split view)
 - [ ] Log correlation/linking between sources
-- [ ] Search history
 - [ ] Named bookmark groups
 - [ ] Custom theme definitions in config
 - [ ] Plugin system for custom sources

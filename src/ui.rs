@@ -14,13 +14,13 @@ use ratatui::{
     },
 };
 
-use crate::app::{AppState, FocusedPanel, InputMode, LogLevel, PickerMode};
+use crate::app::{AppState, FocusedPanel, InputMode, LogLevel, PickerMode, SplitDirection};
 use crate::filter::MatchRange;
 use crate::theme::Theme;
 
 const SIDE_PANEL_WIDTH: u16 = 24;
 
-/// Data for rendering a single log line: (raw, has_ansi, level_color, relative_time, is_json, is_bookmarked, source_id)
+/// Data for rendering a single log line: (raw, has_ansi, level_color, relative_time, is_json, is_bookmarked, source_id, line_number)
 type LineRenderData = (
     String,
     bool,
@@ -29,6 +29,7 @@ type LineRenderData = (
     bool,
     bool,
     usize,
+    usize, // line number (1-indexed for display)
 );
 
 /// Get color for a log level from the theme
@@ -171,7 +172,33 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
         .split(content_area);
 
     draw_header(frame, state, content_chunks[0]);
-    draw_log_view(frame, state, content_chunks[1]);
+
+    // Draw log view(s) based on split direction
+    match state.split_direction {
+        SplitDirection::None => {
+            // Single pane
+            draw_pane(frame, state, 0, content_chunks[1]);
+        }
+        SplitDirection::Vertical => {
+            // Side-by-side split
+            let pane_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(content_chunks[1]);
+            draw_pane(frame, state, 0, pane_chunks[0]);
+            draw_pane(frame, state, 1, pane_chunks[1]);
+        }
+        SplitDirection::Horizontal => {
+            // Stacked split
+            let pane_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(content_chunks[1]);
+            draw_pane(frame, state, 0, pane_chunks[0]);
+            draw_pane(frame, state, 1, pane_chunks[1]);
+        }
+    }
+
     draw_status_bar(frame, state, content_chunks[2]);
     draw_filter_bar(frame, state, content_chunks[3]);
 
@@ -183,6 +210,11 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     // Draw picker overlay if active
     if state.picker.visible {
         draw_picker_overlay(frame, state);
+    }
+
+    // Draw settings overlay if active
+    if state.settings.visible {
+        draw_settings_overlay(frame, state);
     }
 }
 
@@ -228,8 +260,8 @@ fn draw_sources_panel(frame: &mut Frame, state: &AppState, area: Rect) {
         .enumerate()
         .map(|(i, source)| {
             let is_selected = i == state.current_source_idx;
-            let is_visible = state.visible_sources.get(i).copied().unwrap_or(true);
-            let is_solo = matches!(state.view_mode, SourceViewMode::SingleSource(id) if id == i);
+            let is_visible = state.panes[state.active_pane].visible_sources.get(i).copied().unwrap_or(true);
+            let is_solo = matches!(state.panes[state.active_pane].view_mode, SourceViewMode::SingleSource(id) if id == i);
 
             let prefix = if is_selected { ">" } else { " " };
             let visibility = if is_solo {
@@ -329,21 +361,33 @@ fn draw_header(frame: &mut Frame, state: &AppState, area: Rect) {
     frame.render_widget(header, area);
 }
 
-/// Draw the main log view
-fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
-    let focused = state.focused_panel == FocusedPanel::LogView;
-    let border_style = if focused && state.show_side_panel {
+/// Draw a single pane of the log view
+fn draw_pane(frame: &mut Frame, state: &mut AppState, pane_idx: usize, area: Rect) {
+    let is_active_pane = pane_idx == state.active_pane;
+    let has_split = state.split_direction != SplitDirection::None;
+
+    // Determine border style
+    let border_style = if has_split && is_active_pane {
+        Style::default().fg(state.theme.border_focused)
+    } else if has_split {
+        Style::default().fg(state.theme.border_unfocused)
+    } else if state.focused_panel == FocusedPanel::LogView && state.show_side_panel {
         Style::default().fg(state.theme.border_focused)
     } else {
         Style::default().fg(state.theme.border_unfocused)
     };
 
+    // Determine borders based on context
+    let borders = if has_split {
+        Borders::ALL
+    } else if state.show_side_panel {
+        Borders::LEFT
+    } else {
+        Borders::NONE
+    };
+
     let block = Block::default()
-        .borders(if state.show_side_panel {
-            Borders::LEFT
-        } else {
-            Borders::NONE
-        })
+        .borders(borders)
         .border_style(border_style);
 
     let inner = block.inner(area);
@@ -354,15 +398,15 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
         return;
     }
 
-    // Get visible lines
+    // Get visible lines for this pane
     let level_colors = state.level_colors_enabled;
     let show_relative = state.show_relative_time;
     let json_pretty_enabled = state.json_pretty;
-    let scroll_pos = state.scroll;
-    let bookmarks = state.bookmarks.clone();
-    let filtered_indices = state.filtered_indices.clone();
+    let scroll_pos = state.panes[pane_idx].scroll;
+    let bookmarks = state.panes[pane_idx].bookmarks.clone();
+    let filtered_indices = state.panes[pane_idx].filtered_indices.clone();
     let theme = state.theme.clone();
-    let visible = state.visible_lines(height);
+    let visible = state.visible_lines_for_pane(pane_idx, height);
 
     // Collect line data first (to avoid borrow issues)
     // Also track which line indices are bookmarked
@@ -392,6 +436,7 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
                 line.is_json,
                 is_bookmarked,
                 line.source_id,
+                actual_line_idx + 1, // 1-indexed line number
             )
         })
         .collect();
@@ -400,7 +445,7 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
     let json_cache: Vec<Option<String>> = if json_pretty_enabled {
         line_data
             .iter()
-            .map(|(raw, _, _, _, is_json, _, _)| {
+            .map(|(raw, _, _, _, is_json, _, _, _)| {
                 if *is_json {
                     serde_json::from_str::<serde_json::Value>(raw)
                         .ok()
@@ -414,6 +459,14 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
         vec![None; line_data.len()]
     };
 
+    // Calculate line number width for padding (based on max line number we might show)
+    let show_line_numbers = state.show_line_numbers;
+    let line_num_width = if show_line_numbers {
+        state.lines.len().max(1).to_string().len()
+    } else {
+        0
+    };
+
     // Check if we need to show source prefixes (only when multiple sources)
     let show_source_prefix = state.sources.len() > 1;
 
@@ -422,10 +475,10 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
     let h_scroll = if state.line_wrap {
         0
     } else {
-        state.horizontal_scroll
+        state.panes[pane_idx].horizontal_scroll
     };
 
-    for (idx, (raw, has_ansi, level_color, relative_time, _is_json, is_bookmarked, source_id)) in
+    for (idx, (raw, has_ansi, level_color, relative_time, _is_json, is_bookmarked, source_id, line_number)) in
         line_data.iter().enumerate()
     {
         // Check if we have pretty JSON for this line
@@ -434,6 +487,16 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
             .and_then(|j| j.as_ref())
             .map(|s| s.as_str())
             .unwrap_or(raw);
+
+        // Build line number prefix if enabled
+        let line_num_prefix: Option<Span> = if show_line_numbers {
+            Some(Span::styled(
+                format!("{:>width$} ", line_number, width = line_num_width),
+                Style::default().fg(theme.timestamp), // Use timestamp color for line numbers
+            ))
+        } else {
+            None
+        };
 
         // Build source prefix if multiple sources
         let source_prefix: Option<Span> = if show_source_prefix {
@@ -505,9 +568,12 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
                             )
                         };
 
-                        // Add prefixes (source, bookmark, time)
+                        // Add prefixes (line number, source, bookmark, time)
                         if show_prefix {
                             let mut prefix_spans = Vec::new();
+                            if let Some(ref ln) = line_num_prefix {
+                                prefix_spans.push(ln.clone());
+                            }
                             if let Some(ref sp) = source_prefix {
                                 prefix_spans.push(sp.clone());
                             }
@@ -533,6 +599,9 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
                     let mut line = Line::from(scrolled);
                     if show_prefix {
                         let mut prefix_spans = Vec::new();
+                        if let Some(ref ln) = line_num_prefix {
+                            prefix_spans.push(ln.clone());
+                        }
                         if let Some(ref sp) = source_prefix {
                             prefix_spans.push(sp.clone());
                         }
@@ -594,9 +663,12 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
                 let mut highlighted_line =
                     highlight_matches(&scrolled, &matches, base_style, &theme);
 
-                // Add prefixes (source, bookmark, time) - only on first line
+                // Add prefixes (line number, source, bookmark, time) - only on first line
                 if show_prefix {
                     let mut prefix_spans = Vec::new();
+                    if let Some(ref ln) = line_num_prefix {
+                        prefix_spans.push(ln.clone());
+                    }
                     if let Some(ref sp) = source_prefix {
                         prefix_spans.push(sp.clone());
                     }
@@ -637,13 +709,13 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
     frame.render_widget(paragraph, inner);
 
     // Draw scrollbar if there are more lines than visible
-    let (total, filtered) = state.line_counts();
+    let (total, filtered) = state.line_counts_for_pane(pane_idx);
     if filtered > height {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(Some("▲"))
             .end_symbol(Some("▼"));
 
-        let mut scrollbar_state = ScrollbarState::new(filtered).position(state.scroll);
+        let mut scrollbar_state = ScrollbarState::new(filtered).position(state.panes[pane_idx].scroll);
 
         frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }
@@ -653,7 +725,7 @@ fn draw_log_view(frame: &mut Frame, state: &mut AppState, area: Rect) {
         let msg = Paragraph::new("Waiting for log lines...")
             .style(Style::default().fg(theme.empty_state));
         frame.render_widget(msg, inner);
-    } else if filtered == 0 && state.active_filter.is_some() {
+    } else if filtered == 0 && state.panes[pane_idx].active_filter.is_some() {
         let msg = Paragraph::new("No lines match the current filter")
             .style(Style::default().fg(theme.warning_message));
         frame.render_widget(msg, inner);
@@ -668,10 +740,11 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
         InputMode::Normal => "NORMAL",
         InputMode::FilterEditing => "FILTER",
         InputMode::SourceSelect => "SOURCE",
+        InputMode::SplitCommand => "SPLIT",
     };
 
-    let follow_indicator = if state.stick_to_bottom { "[F]" } else { "" };
-    let regex_indicator = if state.filter_is_regex { "[.*]" } else { "" };
+    let follow_indicator = if state.panes[state.active_pane].stick_to_bottom { "[F]" } else { "[P]" };
+    let regex_indicator = if state.panes[state.active_pane].filter_is_regex { "[.*]" } else { "" };
     let wrap_indicator = if state.line_wrap { "[W]" } else { "" };
     let color_indicator = if state.level_colors_enabled {
         "[C]"
@@ -680,8 +753,21 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
     };
     let time_indicator = if state.show_relative_time { "[T]" } else { "" };
     let json_indicator = if state.json_pretty { "[J]" } else { "" };
-    let hscroll_indicator = if !state.line_wrap && state.horizontal_scroll > 0 {
-        format!("[+{}]", state.horizontal_scroll)
+    let hscroll_indicator = if !state.line_wrap && state.panes[state.active_pane].horizontal_scroll > 0 {
+        format!("[+{}]", state.panes[state.active_pane].horizontal_scroll)
+    } else {
+        String::new()
+    };
+    // Throughput indicator - show lines/sec when receiving logs
+    let throughput_indicator = if state.lines_per_second > 0 {
+        format!("[{}/s]", state.lines_per_second)
+    } else {
+        String::new()
+    };
+
+    // Pane indicator (only shown when split)
+    let pane_indicator = if state.split_direction != SplitDirection::None {
+        format!("[{}/{}]", state.active_pane + 1, state.panes.len())
     } else {
         String::new()
     };
@@ -699,8 +785,14 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
     .filter(|s| !s.is_empty())
     .map(|s| s.to_string())
     .collect();
+    if !pane_indicator.is_empty() {
+        indicators.push(pane_indicator);
+    }
     if !hscroll_indicator.is_empty() {
         indicators.push(hscroll_indicator);
+    }
+    if !throughput_indicator.is_empty() {
+        indicators.push(throughput_indicator);
     }
     let indicators_str = if indicators.is_empty() {
         String::new()
@@ -708,7 +800,7 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
         format!(" {}", indicators.join(" "))
     };
 
-    let filter_str = state
+    let filter_str = state.panes[state.active_pane]
         .active_filter
         .as_ref()
         .map(|f| format!(" | filter: {}", f.pattern))
@@ -716,6 +808,7 @@ fn draw_status_bar(frame: &mut Frame, state: &AppState, area: Rect) {
 
     let help_text = match state.mode {
         InputMode::FilterEditing => " Enter:apply  Esc:cancel  Ctrl+r:regex ",
+        InputMode::SplitCommand => " v:vsplit  s:hsplit  q:close  w:cycle  hjkl:nav  Esc:cancel ",
         _ => " ?:help  w:wrap  c:colors ",
     };
 
@@ -754,7 +847,7 @@ fn draw_filter_bar(frame: &mut Frame, state: &mut AppState, area: Rect) {
             let prefix = Paragraph::new("/").style(Style::default().fg(state.theme.filter_prefix));
             frame.render_widget(prefix, chunks[0]);
 
-            frame.render_widget(&state.filter_textarea, chunks[1]);
+            frame.render_widget(&state.panes[state.active_pane].filter_textarea, chunks[1]);
         }
         _ => {
             if let Some(msg) = &state.status_message {
@@ -775,7 +868,7 @@ fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
 
     // Center the help box
     let width = 50.min(area.width.saturating_sub(4));
-    let height = 34.min(area.height.saturating_sub(4));
+    let height = 46.min(area.height.saturating_sub(4));
     let x = (area.width - width) / 2;
     let y = (area.height - height) / 2;
     let help_area = Rect::new(x, y, width, height);
@@ -803,6 +896,7 @@ fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
         Line::from(""),
         Line::from("Filtering:"),
         Line::from("  /            Start filter input"),
+        Line::from("  ↑/↓          Browse filter history"),
         Line::from("  r            Toggle regex mode"),
         Line::from("  s            Save current filter"),
         Line::from("  e            Export filtered lines"),
@@ -811,16 +905,27 @@ fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
         Line::from("Display:"),
         Line::from("  p            Pause/resume auto-scroll"),
         Line::from("  w            Toggle line wrapping"),
+        Line::from("  #            Toggle line numbers"),
         Line::from("  c            Toggle level colors"),
         Line::from("  t            Toggle relative time"),
         Line::from("  J            Toggle JSON pretty-print"),
         Line::from("  b            Toggle side panel"),
         Line::from("  Tab          Cycle panel focus"),
+        Line::from("  y            Yank line to clipboard"),
+        Line::from(""),
+        Line::from("Split View (Ctrl+W prefix):"),
+        Line::from("  Ctrl+W, v    Vertical split (side-by-side)"),
+        Line::from("  Ctrl+W, s    Horizontal split (stacked)"),
+        Line::from("  Ctrl+W, q    Close current pane"),
+        Line::from("  Ctrl+W, w    Cycle to next pane"),
+        Line::from("  Ctrl+W, hjkl Navigate between panes"),
         Line::from(""),
         Line::from("Sources:"),
         Line::from("  D            Docker container picker"),
         Line::from("  K            Kubernetes pod picker"),
         Line::from(""),
+        Line::from("Other:"),
+        Line::from("  S            Open settings"),
         Line::from("  ?            Toggle this help"),
         Line::from("  q            Quit"),
     ];
@@ -833,6 +938,87 @@ fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
 
     let paragraph = Paragraph::new(help_text).block(block);
     frame.render_widget(paragraph, help_area);
+}
+
+/// Draw the settings overlay
+fn draw_settings_overlay(frame: &mut Frame, state: &AppState) {
+    let area = frame.area();
+
+    // Center the settings box
+    let width = 40.min(area.width.saturating_sub(4));
+    let height = 12.min(area.height.saturating_sub(4));
+    let x = (area.width - width) / 2;
+    let y = (area.height - height) / 2;
+    let settings_area = Rect::new(x, y, width, height);
+
+    // Clear background
+    frame.render_widget(Clear, settings_area);
+
+    // Build settings list
+    let settings = [
+        ("Theme", state.theme.name().to_string()),
+        (
+            "Level Colors",
+            if state.level_colors_enabled {
+                "ON".to_string()
+            } else {
+                "OFF".to_string()
+            },
+        ),
+        (
+            "Line Wrap",
+            if state.line_wrap {
+                "ON".to_string()
+            } else {
+                "OFF".to_string()
+            },
+        ),
+        (
+            "Side Panel",
+            if state.show_side_panel {
+                "ON".to_string()
+            } else {
+                "OFF".to_string()
+            },
+        ),
+    ];
+
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(""));
+
+    for (i, (name, value)) in settings.iter().enumerate() {
+        let prefix = if i == state.settings.selected {
+            "> "
+        } else {
+            "  "
+        };
+        let style = if i == state.settings.selected {
+            Style::default()
+                .fg(state.theme.filter_selected)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(Span::styled(
+            format!("{}{:<14} [{}]", prefix, name, value),
+            style,
+        )));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        " Space:toggle  Esc:close",
+        Style::default().fg(state.theme.status_help),
+    )));
+
+    let block = Block::default()
+        .title(" Settings ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(state.theme.help_border))
+        .style(Style::default().bg(state.theme.help_bg));
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, settings_area);
 }
 
 /// Draw the source picker overlay

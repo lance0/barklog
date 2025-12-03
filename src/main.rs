@@ -19,7 +19,7 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use app::{AppState, PickerMode};
+use app::{AppState, LogLine, PickerMode};
 use config::Config;
 use discovery::{discover_docker_containers, discover_k8s_pods};
 use input::{PickerAction, handle_picker_input};
@@ -297,6 +297,12 @@ fn print_help() {
     println!("For more information, see: https://github.com/lance0/bark");
 }
 
+/// Target frame rate for UI updates (~60fps)
+const FRAME_DURATION: Duration = Duration::from_millis(16);
+
+/// Maximum lines to batch before forcing a draw
+const MAX_BATCH_SIZE: usize = 500;
+
 async fn run_event_loop<'a>(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut AppState<'a>,
@@ -307,6 +313,9 @@ async fn run_event_loop<'a>(
     let mut discovery_rx: Option<
         tokio::sync::oneshot::Receiver<anyhow::Result<Vec<discovery::DiscoveredSource>>>,
     > = None;
+
+    // Track when we last drew for frame rate limiting
+    let mut last_draw = std::time::Instant::now();
 
     loop {
         // Check filter debounce before drawing
@@ -356,10 +365,14 @@ async fn run_event_loop<'a>(
             }
         }
 
-        // Draw UI
-        terminal.draw(|frame| {
-            ui::draw(frame, state);
-        })?;
+        // Throttled drawing - only draw if enough time has passed
+        let elapsed = last_draw.elapsed();
+        if elapsed >= FRAME_DURATION {
+            terminal.draw(|frame| {
+                ui::draw(frame, state);
+            })?;
+            last_draw = std::time::Instant::now();
+        }
 
         // Calculate page size for scrolling
         let page_size = terminal.size()?.height.saturating_sub(4) as usize;
@@ -367,7 +380,7 @@ async fn run_event_loop<'a>(
         // Use tokio::select! to handle both terminal events and log events
         tokio::select! {
             // Check for terminal input events
-            _ = tokio::time::sleep(Duration::from_millis(16)) => {
+            _ = tokio::time::sleep(Duration::from_millis(1)) => {
                 // Poll for events with no blocking
                 if event::poll(Duration::ZERO)? {
                     match event::read()? {
@@ -429,11 +442,13 @@ async fn run_event_loop<'a>(
 
             // Check for new log lines from any source
             Some(sourced_event) = event_rx.recv() => {
+                // Batch processing: collect this event and any others available
+                let mut batch: Vec<LogLine> = Vec::new();
+
+                // Process the first event
                 match sourced_event.event {
                     LogEvent::Line(line) => {
-                        // Set source_id on the line before pushing
-                        let line = line.with_source_id(sourced_event.source_id);
-                        state.push_line(line);
+                        batch.push(line.with_source_id(sourced_event.source_id));
                     }
                     LogEvent::Error(msg) => {
                         let source_name = state.sources
@@ -449,6 +464,39 @@ async fn run_event_loop<'a>(
                             .unwrap_or_else(|| "unknown".to_string());
                         state.status_message = Some(format!("[{}] Stream ended", source_name));
                     }
+                }
+
+                // Drain any additional available events (non-blocking)
+                while batch.len() < MAX_BATCH_SIZE {
+                    match event_rx.try_recv() {
+                        Ok(sourced_event) => {
+                            match sourced_event.event {
+                                LogEvent::Line(line) => {
+                                    batch.push(line.with_source_id(sourced_event.source_id));
+                                }
+                                LogEvent::Error(msg) => {
+                                    let source_name = state.sources
+                                        .get(sourced_event.source_id)
+                                        .map(|s| s.name())
+                                        .unwrap_or_else(|| "unknown".to_string());
+                                    state.status_message = Some(format!("[{}] Error: {}", source_name, msg));
+                                }
+                                LogEvent::EndOfStream => {
+                                    let source_name = state.sources
+                                        .get(sourced_event.source_id)
+                                        .map(|s| s.name())
+                                        .unwrap_or_else(|| "unknown".to_string());
+                                    state.status_message = Some(format!("[{}] Stream ended", source_name));
+                                }
+                            }
+                        }
+                        Err(_) => break, // No more events available
+                    }
+                }
+
+                // Push all batched lines at once
+                if !batch.is_empty() {
+                    state.push_lines(batch);
                 }
             }
         }

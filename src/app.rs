@@ -182,6 +182,20 @@ pub enum InputMode {
     /// Selecting a source (future feature)
     #[allow(dead_code)]
     SourceSelect,
+    /// Waiting for split command (after Ctrl+W)
+    SplitCommand,
+}
+
+/// Split direction for dual-pane view
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum SplitDirection {
+    /// Single pane (no split)
+    #[default]
+    None,
+    /// Vertical split (side-by-side)
+    Vertical,
+    /// Horizontal split (stacked)
+    Horizontal,
 }
 
 /// Which panel has focus
@@ -322,230 +336,474 @@ impl PickerState {
 
 }
 
-/// Main application state
-pub struct AppState<'a> {
-    /// Ring buffer of log lines
-    pub lines: VecDeque<LogLine>,
-    /// Indices into lines that match the current filter
-    pub filtered_indices: Vec<usize>,
+/// State for the settings overlay
+#[derive(Debug, Default)]
+pub struct SettingsState {
+    /// Whether the settings overlay is visible
+    pub visible: bool,
+    /// Currently selected setting index (0-3)
+    pub selected: usize,
+}
+
+impl SettingsState {
+    /// Number of settings available
+    pub const COUNT: usize = 4;
+
+    /// Open the settings overlay
+    pub fn open(&mut self) {
+        self.visible = true;
+        self.selected = 0;
+    }
+
+    /// Close the settings overlay
+    pub fn close(&mut self) {
+        self.visible = false;
+    }
+
+    /// Navigate up
+    pub fn up(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
+    }
+
+    /// Navigate down
+    pub fn down(&mut self) {
+        if self.selected < Self::COUNT - 1 {
+            self.selected += 1;
+        }
+    }
+}
+
+/// State for a single log view pane
+pub struct PaneState<'a> {
+    // Scrolling
     /// Current scroll position (index into filtered_indices)
     pub scroll: usize,
-    /// Maximum lines to keep in the buffer
-    pub max_lines: usize,
-    /// Current input mode
-    pub mode: InputMode,
-    /// Filter text input widget
-    pub filter_textarea: TextArea<'a>,
-    /// Currently active filter
-    pub active_filter: Option<ActiveFilter>,
-    /// Whether filter is regex mode
-    pub filter_is_regex: bool,
-    /// Available log sources
-    pub sources: Vec<LogSourceType>,
-    /// Index of current/selected source
-    pub current_source_idx: usize,
-    /// Which sources are currently visible (by index)
-    pub visible_sources: Vec<bool>,
-    /// View mode: show all sources merged or single source only
-    pub view_mode: SourceViewMode,
-    /// Saved filters
-    pub saved_filters: Vec<SavedFilter>,
-    /// Selected saved filter index (for navigation)
-    pub selected_filter_idx: usize,
-    /// Which panel currently has focus
-    pub focused_panel: FocusedPanel,
-    /// Whether side panel is visible
-    pub show_side_panel: bool,
     /// If true, auto-scroll to bottom on new lines
     pub stick_to_bottom: bool,
-    /// Whether the app should quit
-    pub should_quit: bool,
-    /// Status message to display
-    pub status_message: Option<String>,
+    /// Horizontal scroll offset (in characters) - used when line_wrap is false
+    pub horizontal_scroll: usize,
+    /// Last known viewport height (for auto-scroll calculations)
+    pub viewport_height: usize,
+
+    // Filtering
+    /// Indices into lines that match the current filter
+    pub filtered_indices: Vec<usize>,
+    /// Currently active filter
+    pub active_filter: Option<ActiveFilter>,
+    /// Filter text input widget
+    pub filter_textarea: TextArea<'a>,
+    /// Whether filter is regex mode
+    pub filter_is_regex: bool,
     /// Last time filter input changed (for debounce)
     pub filter_last_change: Option<Instant>,
     /// Whether we need to recompute filter (after debounce)
     pub filter_needs_recompute: bool,
-    /// Whether to show help overlay
-    pub show_help: bool,
-    /// Whether to apply log level coloring (for lines without ANSI)
-    pub level_colors_enabled: bool,
-    /// Whether to wrap long lines
-    pub line_wrap: bool,
-    /// Horizontal scroll offset (in characters) - used when line_wrap is false
-    pub horizontal_scroll: usize,
-    /// Export directory for logs
-    pub export_dir: String,
-    /// Whether to show relative timestamps
-    pub show_relative_time: bool,
-    /// Whether to pretty-print JSON logs
-    pub json_pretty: bool,
-    /// Bookmarked line indices (into filtered_indices)
+    /// Current position in filter history when browsing (None = not browsing)
+    pub filter_history_idx: Option<usize>,
+
+    // Source visibility (per-pane)
+    /// Which sources are currently visible (by index)
+    pub visible_sources: Vec<bool>,
+    /// View mode: show all sources merged or single source only
+    pub view_mode: SourceViewMode,
+
+    // Bookmarks (per-pane)
+    /// Bookmarked line indices (into the lines buffer)
     pub bookmarks: Vec<usize>,
-    /// Active color theme
-    pub theme: Theme,
-    /// Last known viewport height (for auto-scroll calculations)
-    pub viewport_height: usize,
-    /// Picker state for adding sources at runtime
-    pub picker: PickerState,
 }
 
-impl<'a> AppState<'a> {
-    pub fn new(config: &Config, sources: Vec<LogSourceType>) -> Self {
+impl<'a> PaneState<'a> {
+    /// Create a new pane with default state
+    pub fn new(num_sources: usize) -> Self {
         let mut textarea = TextArea::default();
         textarea.set_cursor_line_style(Style::default());
         textarea.set_placeholder_text("type to filter...");
         textarea.set_placeholder_style(Style::default().fg(Color::DarkGray));
 
-        let visible_sources = vec![true; sources.len()];
-
         Self {
-            lines: VecDeque::with_capacity(config.max_lines),
-            filtered_indices: Vec::new(),
             scroll: 0,
-            max_lines: config.max_lines,
-            mode: InputMode::Normal,
-            filter_textarea: textarea,
-            active_filter: None,
-            filter_is_regex: false,
-            sources,
-            current_source_idx: 0,
-            visible_sources,
-            view_mode: SourceViewMode::default(),
-            saved_filters: Vec::new(),
-            selected_filter_idx: 0,
-            focused_panel: FocusedPanel::LogView,
-            show_side_panel: config.show_side_panel,
             stick_to_bottom: true,
-            should_quit: false,
-            status_message: None,
+            horizontal_scroll: 0,
+            viewport_height: 20,
+            filtered_indices: Vec::new(),
+            active_filter: None,
+            filter_textarea: textarea,
+            filter_is_regex: false,
             filter_last_change: None,
             filter_needs_recompute: false,
+            filter_history_idx: None,
+            visible_sources: vec![true; num_sources],
+            view_mode: SourceViewMode::default(),
+            bookmarks: Vec::new(),
+        }
+    }
+
+    /// Clone pane state for creating a split (duplicates current view)
+    pub fn clone_for_split(&self) -> Self {
+        let mut textarea = TextArea::default();
+        textarea.set_cursor_line_style(Style::default());
+        textarea.set_placeholder_text("type to filter...");
+        textarea.set_placeholder_style(Style::default().fg(Color::DarkGray));
+        // Copy the current filter text if any
+        let filter_text = self.filter_textarea.lines().join("\n");
+        if !filter_text.is_empty() {
+            textarea.insert_str(&filter_text);
+        }
+
+        Self {
+            scroll: self.scroll,
+            stick_to_bottom: self.stick_to_bottom,
+            horizontal_scroll: self.horizontal_scroll,
+            viewport_height: self.viewport_height,
+            filtered_indices: self.filtered_indices.clone(),
+            active_filter: self.active_filter.clone(),
+            filter_textarea: textarea,
+            filter_is_regex: self.filter_is_regex,
+            filter_last_change: None,
+            filter_needs_recompute: false,
+            filter_history_idx: None,
+            visible_sources: self.visible_sources.clone(),
+            view_mode: self.view_mode,
+            bookmarks: self.bookmarks.clone(),
+        }
+    }
+
+    /// Get the filter input text
+    pub fn filter_input(&self) -> String {
+        self.filter_textarea.lines().join("\n")
+    }
+
+    /// Set filter textarea text
+    pub fn set_filter_text(&mut self, text: &str) {
+        self.filter_textarea.select_all();
+        self.filter_textarea.cut();
+        self.filter_textarea.insert_str(text);
+    }
+}
+
+/// Main application state
+pub struct AppState<'a> {
+    // === Shared log data ===
+    /// Ring buffer of log lines
+    pub lines: VecDeque<LogLine>,
+    /// Maximum lines to keep in the buffer
+    pub max_lines: usize,
+    /// Available log sources
+    pub sources: Vec<LogSourceType>,
+
+    // === Pane management ===
+    /// Panes (1 or 2)
+    pub panes: Vec<PaneState<'a>>,
+    /// Currently active pane index (0 or 1)
+    pub active_pane: usize,
+    /// Split direction
+    pub split_direction: SplitDirection,
+
+    // === Global UI state ===
+    /// Current input mode
+    pub mode: InputMode,
+    /// Which panel currently has focus
+    pub focused_panel: FocusedPanel,
+    /// Index of current/selected source (for Sources panel navigation)
+    pub current_source_idx: usize,
+    /// Saved filters
+    pub saved_filters: Vec<SavedFilter>,
+    /// Selected saved filter index (for navigation)
+    pub selected_filter_idx: usize,
+    /// Whether side panel is visible
+    pub show_side_panel: bool,
+    /// Whether the app should quit
+    pub should_quit: bool,
+    /// Status message to display
+    pub status_message: Option<String>,
+    /// Whether to show help overlay
+    pub show_help: bool,
+    /// Picker state for adding sources at runtime
+    pub picker: PickerState,
+    /// Settings overlay state
+    pub settings: SettingsState,
+
+    // === Display preferences (global) ===
+    /// Whether to apply log level coloring (for lines without ANSI)
+    pub level_colors_enabled: bool,
+    /// Whether to wrap long lines
+    pub line_wrap: bool,
+    /// Whether to show relative timestamps
+    pub show_relative_time: bool,
+    /// Whether to pretty-print JSON logs
+    pub json_pretty: bool,
+    /// Whether to show line numbers in log view
+    pub show_line_numbers: bool,
+    /// Active color theme
+    pub theme: Theme,
+    /// Export directory for logs
+    pub export_dir: String,
+
+    // === Throughput tracking ===
+    /// Lines received in the last second (for throughput display)
+    pub lines_per_second: usize,
+    /// Counter for lines in current second
+    lines_this_second: usize,
+    /// When the current second started
+    throughput_second_start: Instant,
+
+    // === Filter history (shared across panes) ===
+    /// Filter history (recent filters)
+    pub filter_history: Vec<String>,
+}
+
+impl<'a> AppState<'a> {
+    pub fn new(config: &Config, sources: Vec<LogSourceType>) -> Self {
+        let num_sources = sources.len();
+
+        // Create initial pane
+        let initial_pane = PaneState::new(num_sources);
+
+        Self {
+            // Shared log data
+            lines: VecDeque::with_capacity(config.max_lines),
+            max_lines: config.max_lines,
+            sources,
+
+            // Pane management - start with single pane
+            panes: vec![initial_pane],
+            active_pane: 0,
+            split_direction: SplitDirection::None,
+
+            // Global UI state
+            mode: InputMode::Normal,
+            focused_panel: FocusedPanel::LogView,
+            current_source_idx: 0,
+            saved_filters: Vec::new(),
+            selected_filter_idx: 0,
+            show_side_panel: config.show_side_panel,
+            should_quit: false,
+            status_message: None,
             show_help: false,
+            picker: PickerState::default(),
+            settings: SettingsState::default(),
+
+            // Display preferences
             level_colors_enabled: config.level_colors,
             line_wrap: config.line_wrap,
-            horizontal_scroll: 0,
-            export_dir: config.export_dir.clone(),
             show_relative_time: false,
             json_pretty: false,
-            bookmarks: Vec::new(),
+            show_line_numbers: false,
             theme: config.get_theme(),
-            viewport_height: 20, // Default, updated on first render
-            picker: PickerState::default(),
+            export_dir: config.export_dir.clone(),
+
+            // Throughput tracking
+            lines_per_second: 0,
+            lines_this_second: 0,
+            throughput_second_start: Instant::now(),
+
+            // Filter history
+            filter_history: Vec::new(),
+        }
+    }
+
+    /// Check if we're in split mode (have 2 panes)
+    pub fn is_split(&self) -> bool {
+        self.panes.len() > 1
+    }
+
+    /// Create a vertical split (side-by-side panes)
+    pub fn split_vertical(&mut self) {
+        if self.is_split() {
+            self.status_message = Some("Already split (close with Ctrl+W,q)".to_string());
+            return;
+        }
+        let new_pane = self.panes[0].clone_for_split();
+        self.panes.push(new_pane);
+        self.split_direction = SplitDirection::Vertical;
+        self.active_pane = 1; // Focus the new pane
+        self.status_message = Some("Vertical split created".to_string());
+    }
+
+    /// Create a horizontal split (stacked panes)
+    pub fn split_horizontal(&mut self) {
+        if self.is_split() {
+            self.status_message = Some("Already split (close with Ctrl+W,q)".to_string());
+            return;
+        }
+        let new_pane = self.panes[0].clone_for_split();
+        self.panes.push(new_pane);
+        self.split_direction = SplitDirection::Horizontal;
+        self.active_pane = 1; // Focus the new pane
+        self.status_message = Some("Horizontal split created".to_string());
+    }
+
+    /// Close the current pane (returns to single-pane mode)
+    pub fn close_pane(&mut self) {
+        if !self.is_split() {
+            self.status_message = Some("No split to close".to_string());
+            return;
+        }
+        // Remove the non-active pane, or if active is 1, remove index 1
+        if self.active_pane == 0 {
+            self.panes.remove(1);
+        } else {
+            self.panes.remove(1);
+            self.active_pane = 0;
+        }
+        self.split_direction = SplitDirection::None;
+        self.status_message = Some("Split closed".to_string());
+    }
+
+    /// Cycle to the next pane
+    pub fn cycle_pane(&mut self) {
+        if !self.is_split() {
+            return;
+        }
+        self.active_pane = if self.active_pane == 0 { 1 } else { 0 };
+        self.status_message = Some(format!("Pane {}", self.active_pane + 1));
+    }
+
+    /// Focus left pane (for vertical split)
+    pub fn focus_pane_left(&mut self) {
+        if self.split_direction == SplitDirection::Vertical && self.active_pane == 1 {
+            self.active_pane = 0;
+            self.status_message = Some("Pane 1".to_string());
+        }
+    }
+
+    /// Focus right pane (for vertical split)
+    pub fn focus_pane_right(&mut self) {
+        if self.split_direction == SplitDirection::Vertical && self.active_pane == 0 {
+            self.active_pane = 1;
+            self.status_message = Some("Pane 2".to_string());
+        }
+    }
+
+    /// Focus up pane (for horizontal split)
+    pub fn focus_pane_up(&mut self) {
+        if self.split_direction == SplitDirection::Horizontal && self.active_pane == 1 {
+            self.active_pane = 0;
+            self.status_message = Some("Pane 1".to_string());
+        }
+    }
+
+    /// Focus down pane (for horizontal split)
+    pub fn focus_pane_down(&mut self) {
+        if self.split_direction == SplitDirection::Horizontal && self.active_pane == 0 {
+            self.active_pane = 1;
+            self.status_message = Some("Pane 2".to_string());
         }
     }
 
     /// Toggle bookmark at current scroll position
     pub fn toggle_bookmark(&mut self) {
-        if self.filtered_indices.is_empty() {
+        if self.panes[self.active_pane].filtered_indices.is_empty() {
             return;
         }
 
         // Get the actual line index at current scroll position
-        let line_idx = self.filtered_indices[self.scroll];
+        let line_idx = self.panes[self.active_pane].filtered_indices[self.panes[self.active_pane].scroll];
 
-        if let Some(pos) = self.bookmarks.iter().position(|&b| b == line_idx) {
-            self.bookmarks.remove(pos);
+        if let Some(pos) = self.panes[self.active_pane].bookmarks.iter().position(|&b| b == line_idx) {
+            self.panes[self.active_pane].bookmarks.remove(pos);
             self.status_message = Some("Bookmark removed".to_string());
         } else {
-            self.bookmarks.push(line_idx);
-            self.bookmarks.sort_unstable();
+            self.panes[self.active_pane].bookmarks.push(line_idx);
+            self.panes[self.active_pane].bookmarks.sort_unstable();
             self.status_message = Some("Bookmark added".to_string());
         }
     }
 
     /// Jump to next bookmark
     pub fn next_bookmark(&mut self) {
-        if self.bookmarks.is_empty() {
+        if self.panes[self.active_pane].bookmarks.is_empty() {
             self.status_message = Some("No bookmarks".to_string());
             return;
         }
 
-        let current_line_idx = self.filtered_indices.get(self.scroll).copied().unwrap_or(0);
+        let current_line_idx = self.panes[self.active_pane].filtered_indices.get(self.panes[self.active_pane].scroll).copied().unwrap_or(0);
 
         // Find next bookmark after current position
-        if let Some(&next_bookmark) = self.bookmarks.iter().find(|&&b| b > current_line_idx) {
+        if let Some(&next_bookmark) = self.panes[self.active_pane].bookmarks.iter().find(|&&b| b > current_line_idx) {
             // Find this bookmark in filtered_indices
-            if let Some(scroll_pos) = self
+            if let Some(scroll_pos) = self.panes[self.active_pane]
                 .filtered_indices
                 .iter()
                 .position(|&i| i == next_bookmark)
             {
-                self.scroll = scroll_pos;
-                self.stick_to_bottom = false;
+                self.panes[self.active_pane].scroll = scroll_pos;
+                self.panes[self.active_pane].stick_to_bottom = false;
                 self.status_message = Some(format!(
                     "Bookmark {}/{}",
-                    self.bookmarks
+                    self.panes[self.active_pane].bookmarks
                         .iter()
                         .position(|&b| b == next_bookmark)
                         .unwrap()
                         + 1,
-                    self.bookmarks.len()
+                    self.panes[self.active_pane].bookmarks.len()
                 ));
                 return;
             }
         }
 
         // Wrap around to first bookmark
-        if let Some(&first_bookmark) = self.bookmarks.first() {
-            if let Some(scroll_pos) = self
+        if let Some(&first_bookmark) = self.panes[self.active_pane].bookmarks.first() {
+            if let Some(scroll_pos) = self.panes[self.active_pane]
                 .filtered_indices
                 .iter()
                 .position(|&i| i == first_bookmark)
             {
-                self.scroll = scroll_pos;
-                self.stick_to_bottom = false;
+                self.panes[self.active_pane].scroll = scroll_pos;
+                self.panes[self.active_pane].stick_to_bottom = false;
                 self.status_message =
-                    Some(format!("Bookmark 1/{} (wrapped)", self.bookmarks.len()));
+                    Some(format!("Bookmark 1/{} (wrapped)", self.panes[self.active_pane].bookmarks.len()));
             }
         }
     }
 
     /// Jump to previous bookmark
     pub fn prev_bookmark(&mut self) {
-        if self.bookmarks.is_empty() {
+        if self.panes[self.active_pane].bookmarks.is_empty() {
             self.status_message = Some("No bookmarks".to_string());
             return;
         }
 
-        let current_line_idx = self.filtered_indices.get(self.scroll).copied().unwrap_or(0);
+        let current_line_idx = self.panes[self.active_pane].filtered_indices.get(self.panes[self.active_pane].scroll).copied().unwrap_or(0);
 
         // Find previous bookmark before current position
-        if let Some(&prev_bookmark) = self.bookmarks.iter().rev().find(|&&b| b < current_line_idx) {
+        if let Some(&prev_bookmark) = self.panes[self.active_pane].bookmarks.iter().rev().find(|&&b| b < current_line_idx) {
             // Find this bookmark in filtered_indices
-            if let Some(scroll_pos) = self
+            if let Some(scroll_pos) = self.panes[self.active_pane]
                 .filtered_indices
                 .iter()
                 .position(|&i| i == prev_bookmark)
             {
-                self.scroll = scroll_pos;
-                self.stick_to_bottom = false;
+                self.panes[self.active_pane].scroll = scroll_pos;
+                self.panes[self.active_pane].stick_to_bottom = false;
                 self.status_message = Some(format!(
                     "Bookmark {}/{}",
-                    self.bookmarks
+                    self.panes[self.active_pane].bookmarks
                         .iter()
                         .position(|&b| b == prev_bookmark)
                         .unwrap()
                         + 1,
-                    self.bookmarks.len()
+                    self.panes[self.active_pane].bookmarks.len()
                 ));
                 return;
             }
         }
 
         // Wrap around to last bookmark
-        if let Some(&last_bookmark) = self.bookmarks.last() {
-            if let Some(scroll_pos) = self
+        if let Some(&last_bookmark) = self.panes[self.active_pane].bookmarks.last() {
+            if let Some(scroll_pos) = self.panes[self.active_pane]
                 .filtered_indices
                 .iter()
                 .position(|&i| i == last_bookmark)
             {
-                self.scroll = scroll_pos;
-                self.stick_to_bottom = false;
+                self.panes[self.active_pane].scroll = scroll_pos;
+                self.panes[self.active_pane].stick_to_bottom = false;
                 self.status_message = Some(format!(
                     "Bookmark {}/{} (wrapped)",
-                    self.bookmarks.len(),
-                    self.bookmarks.len()
+                    self.panes[self.active_pane].bookmarks.len(),
+                    self.panes[self.active_pane].bookmarks.len()
                 ));
             }
         }
@@ -554,7 +812,7 @@ impl<'a> AppState<'a> {
     /// Check if a line index is bookmarked
     #[allow(dead_code)]
     pub fn is_bookmarked(&self, line_idx: usize) -> bool {
-        self.bookmarks.contains(&line_idx)
+        self.panes[self.active_pane].bookmarks.contains(&line_idx)
     }
 
     /// Toggle JSON pretty-printing
@@ -593,7 +851,7 @@ impl<'a> AppState<'a> {
         self.line_wrap = !self.line_wrap;
         // Reset horizontal scroll when enabling wrapping
         if self.line_wrap {
-            self.horizontal_scroll = 0;
+            self.panes[self.active_pane].horizontal_scroll = 0;
         }
         self.status_message = Some(format!(
             "Line wrap: {}",
@@ -601,37 +859,197 @@ impl<'a> AppState<'a> {
         ));
     }
 
+    /// Toggle line numbers display
+    pub fn toggle_line_numbers(&mut self) {
+        self.show_line_numbers = !self.show_line_numbers;
+        self.status_message = Some(format!(
+            "Line numbers: {}",
+            if self.show_line_numbers { "on" } else { "off" }
+        ));
+    }
+
+    /// Maximum number of filters to keep in history
+    const MAX_FILTER_HISTORY: usize = 50;
+
+    /// Add a filter to history (called when filter is applied)
+    pub fn add_to_filter_history(&mut self, pattern: String) {
+        if pattern.is_empty() {
+            return;
+        }
+        // Remove duplicates - if this pattern exists, remove it first
+        self.filter_history.retain(|p| p != &pattern);
+        // Add to front of history
+        self.filter_history.insert(0, pattern);
+        // Trim to max size
+        if self.filter_history.len() > Self::MAX_FILTER_HISTORY {
+            self.filter_history.truncate(Self::MAX_FILTER_HISTORY);
+        }
+        // Reset history browsing position
+        self.panes[self.active_pane].filter_history_idx = None;
+    }
+
+    /// Navigate up in filter history (older filters)
+    /// Returns true if history was navigated
+    pub fn filter_history_up(&mut self) -> bool {
+        if self.filter_history.is_empty() {
+            return false;
+        }
+        match self.panes[self.active_pane].filter_history_idx {
+            None => {
+                // Start browsing from most recent
+                self.panes[self.active_pane].filter_history_idx = Some(0);
+                self.set_filter_text(&self.filter_history[0].clone());
+                true
+            }
+            Some(idx) if idx + 1 < self.filter_history.len() => {
+                // Go to older entry
+                let new_idx = idx + 1;
+                self.panes[self.active_pane].filter_history_idx = Some(new_idx);
+                self.set_filter_text(&self.filter_history[new_idx].clone());
+                true
+            }
+            _ => false, // Already at oldest
+        }
+    }
+
+    /// Navigate down in filter history (newer filters)
+    /// Returns true if history was navigated
+    pub fn filter_history_down(&mut self) -> bool {
+        match self.panes[self.active_pane].filter_history_idx {
+            Some(0) => {
+                // Back to empty/current input
+                self.panes[self.active_pane].filter_history_idx = None;
+                self.set_filter_text("");
+                true
+            }
+            Some(idx) => {
+                // Go to newer entry
+                let new_idx = idx - 1;
+                self.panes[self.active_pane].filter_history_idx = Some(new_idx);
+                self.set_filter_text(&self.filter_history[new_idx].clone());
+                true
+            }
+            None => false, // Not browsing history
+        }
+    }
+
+    /// Set filter textarea text (helper for history navigation)
+    fn set_filter_text(&mut self, text: &str) {
+        self.panes[self.active_pane].filter_textarea.select_all();
+        self.panes[self.active_pane].filter_textarea.cut();
+        self.panes[self.active_pane].filter_textarea.insert_str(text);
+    }
+
+    /// Get the raw text of the currently visible line at scroll position
+    pub fn get_current_line_text(&self) -> Option<String> {
+        if self.panes[self.active_pane].filtered_indices.is_empty() {
+            return None;
+        }
+        let line_idx = self.panes[self.active_pane].filtered_indices.get(self.panes[self.active_pane].scroll)?;
+        self.lines.get(*line_idx).map(|l| l.raw.clone())
+    }
+
+    /// Available theme names in cycle order
+    const THEMES: &'static [&'static str] = &[
+        "default", "kawaii", "cyber", "dracula", "monochrome",
+        "matrix", "nord", "gruvbox", "catppuccin", "tokyo_night", "solarized",
+    ];
+
+    /// Cycle to the next theme
+    pub fn cycle_theme(&mut self) {
+        let current = self.theme.name();
+        let idx = Self::THEMES.iter().position(|&t| t == current).unwrap_or(0);
+        let next = Self::THEMES[(idx + 1) % Self::THEMES.len()];
+        self.theme = Theme::by_name(next);
+        self.status_message = Some(format!("Theme: {}", next));
+    }
+
+    /// Save current display settings to config file
+    pub fn save_settings(&mut self) {
+        let config = Config {
+            theme: self.theme.name().to_string(),
+            level_colors: self.level_colors_enabled,
+            line_wrap: self.line_wrap,
+            show_side_panel: self.show_side_panel,
+            ..Config::default()
+        };
+        match config.save() {
+            Ok(()) => {
+                self.status_message = Some("Settings saved".to_string());
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Failed to save: {}", e));
+            }
+        }
+    }
+
+    /// Toggle a setting by index (used by settings overlay)
+    pub fn toggle_setting(&mut self, index: usize) {
+        match index {
+            0 => self.cycle_theme(),
+            1 => {
+                self.level_colors_enabled = !self.level_colors_enabled;
+                self.status_message = Some(format!(
+                    "Level colors: {}",
+                    if self.level_colors_enabled { "on" } else { "off" }
+                ));
+            }
+            2 => {
+                self.line_wrap = !self.line_wrap;
+                if self.line_wrap {
+                    self.panes[self.active_pane].horizontal_scroll = 0;
+                }
+                self.status_message = Some(format!(
+                    "Line wrap: {}",
+                    if self.line_wrap { "on" } else { "off" }
+                ));
+            }
+            3 => {
+                self.show_side_panel = !self.show_side_panel;
+                if !self.show_side_panel {
+                    self.focused_panel = FocusedPanel::LogView;
+                }
+                self.status_message = Some(format!(
+                    "Side panel: {}",
+                    if self.show_side_panel { "on" } else { "off" }
+                ));
+            }
+            _ => {}
+        }
+        self.save_settings();
+    }
+
     /// Scroll left (when line wrap is off)
     pub fn scroll_left(&mut self) {
-        if !self.line_wrap && self.horizontal_scroll > 0 {
-            self.horizontal_scroll = self.horizontal_scroll.saturating_sub(4);
+        if !self.line_wrap && self.panes[self.active_pane].horizontal_scroll > 0 {
+            self.panes[self.active_pane].horizontal_scroll = self.panes[self.active_pane].horizontal_scroll.saturating_sub(4);
         }
     }
 
     /// Scroll right (when line wrap is off)
     pub fn scroll_right(&mut self) {
         if !self.line_wrap {
-            self.horizontal_scroll += 4;
+            self.panes[self.active_pane].horizontal_scroll += 4;
         }
     }
 
     /// Scroll left by a larger amount
     pub fn scroll_left_large(&mut self) {
-        if !self.line_wrap && self.horizontal_scroll > 0 {
-            self.horizontal_scroll = self.horizontal_scroll.saturating_sub(20);
+        if !self.line_wrap && self.panes[self.active_pane].horizontal_scroll > 0 {
+            self.panes[self.active_pane].horizontal_scroll = self.panes[self.active_pane].horizontal_scroll.saturating_sub(20);
         }
     }
 
     /// Scroll right by a larger amount
     pub fn scroll_right_large(&mut self) {
         if !self.line_wrap {
-            self.horizontal_scroll += 20;
+            self.panes[self.active_pane].horizontal_scroll += 20;
         }
     }
 
     /// Reset horizontal scroll to beginning
     pub fn scroll_home(&mut self) {
-        self.horizontal_scroll = 0;
+        self.panes[self.active_pane].horizontal_scroll = 0;
     }
 
     /// Export filtered (or all) lines to a file
@@ -639,7 +1057,7 @@ impl<'a> AppState<'a> {
         let mut file = File::create(path).map_err(|e| e.to_string())?;
 
         let mut count = 0;
-        for &idx in &self.filtered_indices {
+        for &idx in &self.panes[self.active_pane].filtered_indices {
             if let Some(line) = self.lines.get(idx) {
                 writeln!(file, "{}", line.raw).map_err(|e| e.to_string())?;
                 count += 1;
@@ -664,12 +1082,12 @@ impl<'a> AppState<'a> {
     #[allow(dead_code)]
     pub fn add_source(&mut self, source: LogSourceType) {
         self.sources.push(source);
-        self.visible_sources.push(true);
+        self.panes[self.active_pane].visible_sources.push(true);
     }
 
     /// Save the current filter with a name
     pub fn save_current_filter(&mut self, name: String) {
-        if let Some(ref filter) = self.active_filter {
+        if let Some(ref filter) = self.panes[self.active_pane].active_filter {
             self.saved_filters.push(SavedFilter {
                 name,
                 pattern: filter.pattern.clone(),
@@ -686,10 +1104,10 @@ impl<'a> AppState<'a> {
             let is_regex = saved.is_regex;
             let name = saved.name.clone();
 
-            self.filter_textarea = TextArea::new(vec![pattern.clone()]);
-            self.filter_textarea.set_cursor_line_style(Style::default());
-            self.filter_is_regex = is_regex;
-            self.active_filter = Some(ActiveFilter::new(pattern, is_regex));
+            self.panes[self.active_pane].filter_textarea = TextArea::new(vec![pattern.clone()]);
+            self.panes[self.active_pane].filter_textarea.set_cursor_line_style(Style::default());
+            self.panes[self.active_pane].filter_is_regex = is_regex;
+            self.panes[self.active_pane].active_filter = Some(ActiveFilter::new(pattern, is_regex));
             self.recompute_filter();
             self.status_message = Some(format!("Applied filter: {}", name));
         }
@@ -723,7 +1141,7 @@ impl<'a> AppState<'a> {
 
             // Adjust bookmark indices since all indices shifted by 1
             // Remove bookmarks pointing to the evicted line (index 0)
-            self.bookmarks.retain_mut(|idx| {
+            self.panes[self.active_pane].bookmarks.retain_mut(|idx| {
                 if *idx == 0 {
                     return false;
                 }
@@ -733,7 +1151,7 @@ impl<'a> AppState<'a> {
 
             // Incrementally adjust filtered indices instead of full recompute
             // This is O(m) where m = filtered lines, vs O(n) for full recompute
-            self.filtered_indices.retain_mut(|idx| {
+            self.panes[self.active_pane].filtered_indices.retain_mut(|idx| {
                 if *idx == 0 {
                     return false;
                 }
@@ -742,10 +1160,10 @@ impl<'a> AppState<'a> {
             });
 
             // Adjust scroll if it's now out of bounds
-            if !self.filtered_indices.is_empty() {
-                self.scroll = self.scroll.min(self.filtered_indices.len() - 1);
+            if !self.panes[self.active_pane].filtered_indices.is_empty() {
+                self.panes[self.active_pane].scroll = self.panes[self.active_pane].scroll.min(self.panes[self.active_pane].filtered_indices.len() - 1);
             } else {
-                self.scroll = 0;
+                self.panes[self.active_pane].scroll = 0;
             }
         }
 
@@ -754,16 +1172,92 @@ impl<'a> AppState<'a> {
 
         // Check if the new line matches the filter
         if self.matches_filter(line_index) {
-            self.filtered_indices.push(line_index);
+            self.panes[self.active_pane].filtered_indices.push(line_index);
         }
 
         // Auto-scroll if stick_to_bottom is enabled
         // Scroll so the last line appears at the BOTTOM of the viewport
-        if self.stick_to_bottom && !self.filtered_indices.is_empty() {
-            self.scroll = self
+        if self.panes[self.active_pane].stick_to_bottom && !self.panes[self.active_pane].filtered_indices.is_empty() {
+            self.panes[self.active_pane].scroll = self.panes[self.active_pane]
                 .filtered_indices
                 .len()
-                .saturating_sub(self.viewport_height);
+                .saturating_sub(self.panes[self.active_pane].viewport_height);
+        }
+
+        // Update throughput tracking
+        self.track_throughput(1);
+    }
+
+    /// Push multiple log lines efficiently (batched)
+    /// Only updates scroll position once at the end
+    pub fn push_lines(&mut self, lines: Vec<LogLine>) {
+        let count = lines.len();
+        if count == 0 {
+            return;
+        }
+
+        for line in lines {
+            // If buffer is full, remove oldest line
+            if self.lines.len() >= self.max_lines {
+                self.lines.pop_front();
+
+                // Adjust bookmark indices
+                self.panes[self.active_pane].bookmarks.retain_mut(|idx| {
+                    if *idx == 0 {
+                        return false;
+                    }
+                    *idx -= 1;
+                    true
+                });
+
+                // Adjust filtered indices
+                self.panes[self.active_pane].filtered_indices.retain_mut(|idx| {
+                    if *idx == 0 {
+                        return false;
+                    }
+                    *idx -= 1;
+                    true
+                });
+            }
+
+            let line_index = self.lines.len();
+            self.lines.push_back(line);
+
+            // Check if the new line matches the filter
+            if self.matches_filter(line_index) {
+                self.panes[self.active_pane].filtered_indices.push(line_index);
+            }
+        }
+
+        // Update scroll only once at the end (not per line)
+        if self.panes[self.active_pane].stick_to_bottom && !self.panes[self.active_pane].filtered_indices.is_empty() {
+            self.panes[self.active_pane].scroll = self.panes[self.active_pane]
+                .filtered_indices
+                .len()
+                .saturating_sub(self.panes[self.active_pane].viewport_height);
+        }
+
+        // Adjust scroll if it's now out of bounds
+        if !self.panes[self.active_pane].filtered_indices.is_empty() {
+            self.panes[self.active_pane].scroll = self.panes[self.active_pane].scroll.min(self.panes[self.active_pane].filtered_indices.len() - 1);
+        } else {
+            self.panes[self.active_pane].scroll = 0;
+        }
+
+        // Update throughput tracking
+        self.track_throughput(count);
+    }
+
+    /// Update throughput tracking
+    fn track_throughput(&mut self, count: usize) {
+        let elapsed = self.throughput_second_start.elapsed();
+        if elapsed.as_secs() >= 1 {
+            // New second started - save count and reset
+            self.lines_per_second = self.lines_this_second;
+            self.lines_this_second = count;
+            self.throughput_second_start = Instant::now();
+        } else {
+            self.lines_this_second += count;
         }
     }
 
@@ -775,7 +1269,7 @@ impl<'a> AppState<'a> {
         };
 
         // Check source visibility
-        if !self
+        if !self.panes[self.active_pane]
             .visible_sources
             .get(line.source_id)
             .copied()
@@ -785,14 +1279,14 @@ impl<'a> AppState<'a> {
         }
 
         // Check view mode
-        match self.view_mode {
+        match self.panes[self.active_pane].view_mode {
             SourceViewMode::AllMerged => {}
             SourceViewMode::SingleSource(id) if id != line.source_id => return false,
             _ => {}
         }
 
         // Check text filter
-        match &self.active_filter {
+        match &self.panes[self.active_pane].active_filter {
             None => true,
             Some(filter) => filter.matches(&line.raw),
         }
@@ -800,116 +1294,116 @@ impl<'a> AppState<'a> {
 
     /// Recompute filtered_indices based on current filter
     pub fn recompute_filter(&mut self) {
-        self.filtered_indices.clear();
+        self.panes[self.active_pane].filtered_indices.clear();
         for i in 0..self.lines.len() {
             if self.matches_filter(i) {
-                self.filtered_indices.push(i);
+                self.panes[self.active_pane].filtered_indices.push(i);
             }
         }
 
         // Adjust scroll if it's now out of bounds
-        if !self.filtered_indices.is_empty() {
-            self.scroll = self.scroll.min(self.filtered_indices.len() - 1);
+        if !self.panes[self.active_pane].filtered_indices.is_empty() {
+            self.panes[self.active_pane].scroll = self.panes[self.active_pane].scroll.min(self.panes[self.active_pane].filtered_indices.len() - 1);
         } else {
-            self.scroll = 0;
+            self.panes[self.active_pane].scroll = 0;
         }
     }
 
     /// Scroll up by one line
     pub fn scroll_up(&mut self) {
-        if self.scroll > 0 {
-            self.scroll -= 1;
-            self.stick_to_bottom = false;
+        if self.panes[self.active_pane].scroll > 0 {
+            self.panes[self.active_pane].scroll -= 1;
+            self.panes[self.active_pane].stick_to_bottom = false;
         }
     }
 
     /// Scroll down by one line
     pub fn scroll_down(&mut self) {
-        if !self.filtered_indices.is_empty() && self.scroll < self.filtered_indices.len() - 1 {
-            self.scroll += 1;
+        if !self.panes[self.active_pane].filtered_indices.is_empty() && self.panes[self.active_pane].scroll < self.panes[self.active_pane].filtered_indices.len() - 1 {
+            self.panes[self.active_pane].scroll += 1;
         }
     }
 
     /// Scroll up by a page
     pub fn scroll_page_up(&mut self, page_size: usize) {
-        self.scroll = self.scroll.saturating_sub(page_size);
-        self.stick_to_bottom = false;
+        self.panes[self.active_pane].scroll = self.panes[self.active_pane].scroll.saturating_sub(page_size);
+        self.panes[self.active_pane].stick_to_bottom = false;
     }
 
     /// Scroll down by a page
     pub fn scroll_page_down(&mut self, page_size: usize) {
-        if !self.filtered_indices.is_empty() {
-            self.scroll = (self.scroll + page_size).min(self.filtered_indices.len() - 1);
+        if !self.panes[self.active_pane].filtered_indices.is_empty() {
+            self.panes[self.active_pane].scroll = (self.panes[self.active_pane].scroll + page_size).min(self.panes[self.active_pane].filtered_indices.len() - 1);
         }
     }
 
     /// Go to the top of the log
     pub fn go_to_top(&mut self) {
-        self.scroll = 0;
-        self.stick_to_bottom = false;
+        self.panes[self.active_pane].scroll = 0;
+        self.panes[self.active_pane].stick_to_bottom = false;
     }
 
     /// Go to the bottom of the log and enable stick_to_bottom
     pub fn go_to_bottom(&mut self) {
-        if !self.filtered_indices.is_empty() {
-            self.scroll = self.filtered_indices.len() - 1;
+        if !self.panes[self.active_pane].filtered_indices.is_empty() {
+            self.panes[self.active_pane].scroll = self.panes[self.active_pane].filtered_indices.len() - 1;
         }
-        self.stick_to_bottom = true;
+        self.panes[self.active_pane].stick_to_bottom = true;
     }
 
     /// Go to next matching line (when filter is active)
     pub fn next_match(&mut self) {
-        if self.filtered_indices.is_empty() {
+        if self.panes[self.active_pane].filtered_indices.is_empty() {
             return;
         }
-        if self.scroll < self.filtered_indices.len() - 1 {
-            self.scroll += 1;
-            self.stick_to_bottom = false;
+        if self.panes[self.active_pane].scroll < self.panes[self.active_pane].filtered_indices.len() - 1 {
+            self.panes[self.active_pane].scroll += 1;
+            self.panes[self.active_pane].stick_to_bottom = false;
             self.status_message = Some(format!(
                 "Match {}/{}",
-                self.scroll + 1,
-                self.filtered_indices.len()
+                self.panes[self.active_pane].scroll + 1,
+                self.panes[self.active_pane].filtered_indices.len()
             ));
         } else {
             // Wrap to beginning
-            self.scroll = 0;
-            self.stick_to_bottom = false;
+            self.panes[self.active_pane].scroll = 0;
+            self.panes[self.active_pane].stick_to_bottom = false;
             self.status_message = Some(format!(
                 "Match {}/{} (wrapped)",
-                self.scroll + 1,
-                self.filtered_indices.len()
+                self.panes[self.active_pane].scroll + 1,
+                self.panes[self.active_pane].filtered_indices.len()
             ));
         }
     }
 
     /// Go to previous matching line (when filter is active)
     pub fn prev_match(&mut self) {
-        if self.filtered_indices.is_empty() {
+        if self.panes[self.active_pane].filtered_indices.is_empty() {
             return;
         }
-        if self.scroll > 0 {
-            self.scroll -= 1;
-            self.stick_to_bottom = false;
+        if self.panes[self.active_pane].scroll > 0 {
+            self.panes[self.active_pane].scroll -= 1;
+            self.panes[self.active_pane].stick_to_bottom = false;
             self.status_message = Some(format!(
                 "Match {}/{}",
-                self.scroll + 1,
-                self.filtered_indices.len()
+                self.panes[self.active_pane].scroll + 1,
+                self.panes[self.active_pane].filtered_indices.len()
             ));
         } else {
             // Wrap to end
-            self.scroll = self.filtered_indices.len() - 1;
-            self.stick_to_bottom = false;
+            self.panes[self.active_pane].scroll = self.panes[self.active_pane].filtered_indices.len() - 1;
+            self.panes[self.active_pane].stick_to_bottom = false;
             self.status_message = Some(format!(
                 "Match {}/{} (wrapped)",
-                self.scroll + 1,
-                self.filtered_indices.len()
+                self.panes[self.active_pane].scroll + 1,
+                self.panes[self.active_pane].filtered_indices.len()
             ));
         }
     }
 
     /// Get match ranges for a line (for highlighting)
     pub fn get_match_ranges(&self, line: &str) -> Vec<MatchRange> {
-        if let Some(ref filter) = self.active_filter {
+        if let Some(ref filter) = self.panes[self.active_pane].active_filter {
             filter.find_matches(line)
         } else {
             Vec::new()
@@ -918,75 +1412,79 @@ impl<'a> AppState<'a> {
 
     /// Get the current filter input text
     pub fn filter_input(&self) -> String {
-        self.filter_textarea.lines().join("\n")
+        self.panes[self.active_pane].filter_textarea.lines().join("\n")
     }
 
     /// Apply the current filter input as the active filter
     pub fn apply_filter(&mut self) {
         let input = self.filter_input();
         if input.is_empty() {
-            self.active_filter = None;
+            self.panes[self.active_pane].active_filter = None;
         } else {
-            self.active_filter = Some(ActiveFilter::new(input, self.filter_is_regex));
+            // Add to history before applying
+            self.add_to_filter_history(input.clone());
+            self.panes[self.active_pane].active_filter = Some(ActiveFilter::new(input, self.panes[self.active_pane].filter_is_regex));
         }
         self.recompute_filter();
         self.mode = InputMode::Normal;
-        self.filter_last_change = None;
-        self.filter_needs_recompute = false;
+        self.panes[self.active_pane].filter_last_change = None;
+        self.panes[self.active_pane].filter_needs_recompute = false;
+        self.panes[self.active_pane].filter_history_idx = None; // Reset history browsing
     }
 
     /// Cancel filter editing and revert to previous state
     pub fn cancel_filter(&mut self) {
         // Restore textarea to previous filter
-        let prev = self
+        let prev = self.panes[self.active_pane]
             .active_filter
             .as_ref()
             .map(|f| f.pattern.clone())
             .unwrap_or_default();
-        self.filter_textarea = TextArea::new(vec![prev]);
-        self.filter_textarea.set_cursor_line_style(Style::default());
+        self.panes[self.active_pane].filter_textarea = TextArea::new(vec![prev]);
+        self.panes[self.active_pane].filter_textarea.set_cursor_line_style(Style::default());
         self.mode = InputMode::Normal;
-        self.filter_last_change = None;
-        self.filter_needs_recompute = false;
+        self.panes[self.active_pane].filter_last_change = None;
+        self.panes[self.active_pane].filter_needs_recompute = false;
+        self.panes[self.active_pane].filter_history_idx = None; // Reset history browsing
     }
 
     /// Mark that filter input changed (for debounce)
     pub fn filter_changed(&mut self) {
-        self.filter_last_change = Some(Instant::now());
-        self.filter_needs_recompute = true;
+        self.panes[self.active_pane].filter_last_change = Some(Instant::now());
+        self.panes[self.active_pane].filter_needs_recompute = true;
     }
 
     /// Check if debounce period has passed and recompute if needed
     pub fn check_filter_debounce(&mut self) {
-        if let Some(last_change) = self.filter_last_change {
+        if let Some(last_change) = self.panes[self.active_pane].filter_last_change {
             if last_change.elapsed().as_millis() >= FILTER_DEBOUNCE_MS
-                && self.filter_needs_recompute
+                && self.panes[self.active_pane].filter_needs_recompute
             {
                 // Apply filter without changing mode
                 let input = self.filter_input();
                 if input.is_empty() {
-                    self.active_filter = None;
+                    self.panes[self.active_pane].active_filter = None;
                 } else {
-                    self.active_filter = Some(ActiveFilter::new(input, self.filter_is_regex));
+                    self.panes[self.active_pane].active_filter = Some(ActiveFilter::new(input, self.panes[self.active_pane].filter_is_regex));
                 }
                 self.recompute_filter();
-                self.filter_needs_recompute = false;
+                self.panes[self.active_pane].filter_needs_recompute = false;
             }
         }
     }
 
     /// Toggle regex mode for filtering
     pub fn toggle_regex_mode(&mut self) {
-        self.filter_is_regex = !self.filter_is_regex;
-        if self.active_filter.is_some() {
+        self.panes[self.active_pane].filter_is_regex = !self.panes[self.active_pane].filter_is_regex;
+        if self.panes[self.active_pane].active_filter.is_some() {
             // Reapply filter with new mode
             let input = self.filter_input();
-            self.active_filter = Some(ActiveFilter::new(input, self.filter_is_regex));
+            self.panes[self.active_pane].active_filter = Some(ActiveFilter::new(input, self.panes[self.active_pane].filter_is_regex));
             self.recompute_filter();
         }
         self.status_message = Some(format!(
             "Filter mode: {}",
-            if self.filter_is_regex {
+            if self.panes[self.active_pane].filter_is_regex {
                 "regex"
             } else {
                 "substring"
@@ -998,25 +1496,25 @@ impl<'a> AppState<'a> {
     pub fn visible_lines(&mut self, height: usize) -> Vec<(usize, &LogLine)> {
         // Update viewport height and recalculate scroll if stick_to_bottom is enabled
         // This fixes the initial render where viewport_height was default (20)
-        let height_changed = self.viewport_height != height;
-        self.viewport_height = height;
+        let height_changed = self.panes[self.active_pane].viewport_height != height;
+        self.panes[self.active_pane].viewport_height = height;
 
-        if self.filtered_indices.is_empty() {
+        if self.panes[self.active_pane].filtered_indices.is_empty() {
             return Vec::new();
         }
 
         // Recalculate scroll position if viewport height changed and we're sticking to bottom
-        if height_changed && self.stick_to_bottom {
-            self.scroll = self
+        if height_changed && self.panes[self.active_pane].stick_to_bottom {
+            self.panes[self.active_pane].scroll = self.panes[self.active_pane]
                 .filtered_indices
                 .len()
-                .saturating_sub(self.viewport_height);
+                .saturating_sub(self.panes[self.active_pane].viewport_height);
         }
 
-        let start = self.scroll;
-        let end = (start + height).min(self.filtered_indices.len());
+        let start = self.panes[self.active_pane].scroll;
+        let end = (start + height).min(self.panes[self.active_pane].filtered_indices.len());
 
-        self.filtered_indices[start..end]
+        self.panes[self.active_pane].filtered_indices[start..end]
             .iter()
             .enumerate()
             .filter_map(|(i, &line_idx)| {
@@ -1027,7 +1525,47 @@ impl<'a> AppState<'a> {
 
     /// Get total and visible line counts
     pub fn line_counts(&self) -> (usize, usize) {
-        (self.lines.len(), self.filtered_indices.len())
+        (self.lines.len(), self.panes[self.active_pane].filtered_indices.len())
+    }
+
+    /// Get visible lines for a specific pane
+    pub fn visible_lines_for_pane(&mut self, pane_idx: usize, height: usize) -> Vec<(usize, &LogLine)> {
+        if pane_idx >= self.panes.len() {
+            return Vec::new();
+        }
+
+        let height_changed = self.panes[pane_idx].viewport_height != height;
+        self.panes[pane_idx].viewport_height = height;
+
+        if self.panes[pane_idx].filtered_indices.is_empty() {
+            return Vec::new();
+        }
+
+        if height_changed && self.panes[pane_idx].stick_to_bottom {
+            self.panes[pane_idx].scroll = self.panes[pane_idx]
+                .filtered_indices
+                .len()
+                .saturating_sub(self.panes[pane_idx].viewport_height);
+        }
+
+        let start = self.panes[pane_idx].scroll;
+        let end = (start + height).min(self.panes[pane_idx].filtered_indices.len());
+
+        self.panes[pane_idx].filtered_indices[start..end]
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &line_idx)| {
+                self.lines.get(line_idx).map(|line| (start + i, line))
+            })
+            .collect()
+    }
+
+    /// Get line counts for a specific pane
+    pub fn line_counts_for_pane(&self, pane_idx: usize) -> (usize, usize) {
+        if pane_idx >= self.panes.len() {
+            return (self.lines.len(), 0);
+        }
+        (self.lines.len(), self.panes[pane_idx].filtered_indices.len())
     }
 }
 
