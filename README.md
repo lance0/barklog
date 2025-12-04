@@ -1,5 +1,7 @@
 # barklog
 
+<img src="kimchi.png" alt="Kimchi the Italian Greyhound - barklog mascot" width="120" align="right">
+
 A fast, keyboard-driven TUI for tailing logs from files, Docker, Kubernetes, and SSH servers.
 
 [![CI](https://github.com/lance0/barklog/actions/workflows/ci.yml/badge.svg)](https://github.com/lance0/barklog/actions/workflows/ci.yml)
